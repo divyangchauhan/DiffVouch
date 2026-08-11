@@ -63,6 +63,7 @@ Every finding must contain:
 
 - Severity and category.
 - Changed file and changed line or minimal changed-line range.
+- Diff side: `RIGHT` for an added line or `LEFT` for a deleted line. Use `not-inline` when the finding is not anchored to a publishable changed line.
 - A concise title phrased as the defect, not a suggestion.
 - Trigger: the concrete input, state, or sequence that exposes it.
 - Impact: what fails or becomes unsafe.
@@ -82,8 +83,11 @@ Return exactly this structure in Markdown. Omit the **Needs verification** secti
 **Review isolation:** <isolated subagent | fresh process | shared context>
 **Model:** <actual model identifier | unknown (inherited)>
 **Effort:** <actual effort level | unknown (inherited)>
+**Reviewed commit:** <full HEAD SHA | not committed>
 **Rating:** <x.x>/5 — <Excellent | Good | Needs work | High risk | Critical risk>
 **Files reviewed:** <count>
+**Finding count:** <count>
+**Publication:** <not requested | requested>
 
 ## Findings
 
@@ -95,6 +99,7 @@ Return exactly this structure in Markdown. Omit the **Needs verification** secti
 - **Impact:** <observable consequence>
 - **Recommendation:** <smallest credible fix direction>
 - **Confidence:** <high | medium>
+- **Diff side:** <RIGHT | LEFT | not-inline>
 
 <Repeat for each finding, or write "No actionable findings." when empty.>
 
@@ -118,3 +123,34 @@ Return exactly this structure in Markdown. Omit the **Needs verification** secti
 ```
 
 Keep the report concise. Do not add praise merely to balance criticism. Positive observations belong only in a score-table reason when they explain the score.
+
+## Publication payload
+
+When and only when GitHub publication was explicitly requested, append one fenced `json` block after the Markdown report. The invoking harness saves the JSON object unchanged and passes it to `scripts/publish-review.py`.
+
+```json
+{
+  "schemaVersion": 1,
+  "status": "complete",
+  "partial": false,
+  "reviewedCommit": "<full HEAD SHA reviewed>",
+  "body": "<the complete Markdown report above>",
+  "comments": [
+    {
+      "path": "path/to/file.ext",
+      "line": 42,
+      "side": "RIGHT",
+      "body": "**High · correctness** — <title>\n\n<impact and recommendation>"
+    }
+  ]
+}
+```
+
+Payload rules:
+
+- `body` must contain the complete report verbatim and therefore includes the score, rubric, finding count, actual model and effort, and reviewed commit.
+- Add a comment only for a high- or medium-confidence finding on a changed line. Omit `comments` entries for `not-inline` findings and everything under **Needs verification**.
+- Start every medium-confidence comment body with `**Medium confidence:**`.
+- Use the ending line for `line`. Optional multi-line comments may also supply `start_line` and `start_side`.
+- Never add GitHub review-event data to the payload; the publisher always forces `COMMENT`.
+- Do not emit a payload for a partial or failed review.

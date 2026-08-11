@@ -142,7 +142,7 @@ def main() -> int:
             print(json.dumps(api_body, indent=2, sort_keys=True))
             return 0
 
-        run_gh("auth", "status", "--active")
+        run_gh("auth", "status", "--hostname", "github.com")
         repo = discover_repo(args.repo)
         pr = discover_pr(repo, args.pr)
         pr_data = json.loads(run_gh("api", f"repos/{repo}/pulls/{pr}"))

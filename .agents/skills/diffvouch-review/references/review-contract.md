@@ -80,6 +80,8 @@ Return exactly this structure in Markdown. Omit the **Needs verification** secti
 
 **Scope:** <working-tree | staged | merge-base(base)..working-tree | merge-base(base)..HEAD>
 **Review isolation:** <isolated subagent | fresh process | shared context>
+**Model:** <actual model identifier | unknown (inherited)>
+**Effort:** <actual effort level | unknown (inherited)>
 **Rating:** <x.x>/5 — <Excellent | Good | Needs work | High risk | Critical risk>
 **Files reviewed:** <count>
 

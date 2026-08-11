@@ -1,4 +1,4 @@
 interface:
   display_name: "DiffVouch Review"
   short_description: "Review Git diffs with a scored quality rubric"
-  default_prompt: "Use $diffvouch-review to review my current Git changes and rate them out of 5."
+  default_prompt: "Use $diffvouch-review in an isolated reviewer to review my current Git changes and rate them out of 5."

@@ -79,6 +79,7 @@ Return exactly this structure in Markdown. Omit the **Needs verification** secti
 # DiffVouch Review
 
 **Scope:** <working-tree | staged | merge-base(base)..working-tree | merge-base(base)..HEAD>
+**Review isolation:** <isolated subagent | fresh process | shared context>
 **Rating:** <x.x>/5 — <Excellent | Good | Needs work | High risk | Critical risk>
 **Files reviewed:** <count>
 
@@ -111,7 +112,7 @@ Return exactly this structure in Markdown. Omit the **Needs verification** secti
 
 ## Assumptions and validation
 
-- <material assumption, skipped content, or recommended validation command>
+- <material assumption, skipped content, recommended validation command, or reason shared context was used>
 ```
 
 Keep the report concise. Do not add praise merely to balance criticism. Positive observations belong only in a score-table reason when they explain the score.

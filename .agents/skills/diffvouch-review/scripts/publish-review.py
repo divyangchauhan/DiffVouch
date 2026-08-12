@@ -79,26 +79,81 @@ def validate_payload(payload: dict[str, Any]) -> None:
                 raise PublicationError(f"comment {index} start_side must be LEFT or RIGHT")
 
 
+def decode_git_path(header_value: str) -> str | None:
+    if header_value == "/dev/null":
+        return None
+    if not (header_value.startswith('"') and header_value.endswith('"')):
+        value = header_value
+    else:
+        encoded = bytearray()
+        value = header_value[1:-1]
+        index = 0
+        escapes = {
+            "a": 7,
+            "b": 8,
+            "f": 12,
+            "n": 10,
+            "r": 13,
+            "t": 9,
+            "v": 11,
+            "\\": 92,
+            '"': 34,
+        }
+        while index < len(value):
+            character = value[index]
+            if character != "\\":
+                encoded.extend(character.encode("utf-8"))
+                index += 1
+                continue
+            index += 1
+            if index >= len(value):
+                raise PublicationError("invalid trailing escape in Git diff path")
+            escaped = value[index]
+            if escaped in escapes:
+                encoded.append(escapes[escaped])
+                index += 1
+            elif escaped in "01234567":
+                end = index + 1
+                while end < min(index + 3, len(value)) and value[end] in "01234567":
+                    end += 1
+                encoded.append(int(value[index:end], 8))
+                index = end
+            else:
+                encoded.extend(escaped.encode("utf-8"))
+                index += 1
+        value = encoded.decode("utf-8", errors="surrogateescape")
+    if value.startswith(("a/", "b/")):
+        return value[2:]
+    return value
+
+
 def parse_changed_lines(diff: str) -> set[tuple[str, str, int]]:
     changed: set[tuple[str, str, int]] = set()
-    path: str | None = None
+    old_path: str | None = None
+    new_path: str | None = None
+    in_hunk = False
     old_line = new_line = 0
     for raw_line in diff.splitlines():
         if raw_line.startswith("diff --git "):
-            path = None
-        elif raw_line.startswith("+++ b/"):
-            path = raw_line[6:]
+            old_path = None
+            new_path = None
+            in_hunk = False
+        elif not in_hunk and raw_line.startswith("--- "):
+            old_path = decode_git_path(raw_line[4:])
+        elif not in_hunk and raw_line.startswith("+++ "):
+            new_path = decode_git_path(raw_line[4:])
         elif raw_line.startswith("@@ "):
             match = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw_line)
             if match:
                 old_line, new_line = map(int, match.groups())
-        elif path is not None and raw_line.startswith("+") and not raw_line.startswith("+++"):
-            changed.add((path, "RIGHT", new_line))
+                in_hunk = True
+        elif in_hunk and new_path is not None and raw_line.startswith("+"):
+            changed.add((new_path, "RIGHT", new_line))
             new_line += 1
-        elif path is not None and raw_line.startswith("-") and not raw_line.startswith("---"):
-            changed.add((path, "LEFT", old_line))
+        elif in_hunk and (new_path or old_path) is not None and raw_line.startswith("-"):
+            changed.add((new_path or old_path, "LEFT", old_line))
             old_line += 1
-        elif path is not None and raw_line.startswith(" "):
+        elif in_hunk and (new_path or old_path) is not None and raw_line.startswith(" "):
             old_line += 1
             new_line += 1
     return changed

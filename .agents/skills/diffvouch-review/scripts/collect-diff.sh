@@ -4,6 +4,12 @@ set -euo pipefail
 
 mode="${1:-working-tree}"
 base_ref="${2:-}"
+max_diff_bytes="${DIFFVOUCH_MAX_DIFF_BYTES:-500000}"
+
+if [[ ! "$max_diff_bytes" =~ ^[1-9][0-9]*$ ]]; then
+  echo "error: DIFFVOUCH_MAX_DIFF_BYTES must be a positive integer" >&2
+  exit 2
+fi
 
 repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   echo "error: not inside a Git repository" >&2
@@ -76,11 +82,45 @@ if [[ "$include_untracked" == true ]]; then
   done < <(git ls-files --others --exclude-standard -z)
 fi
 
+patch_file="$(mktemp "${TMPDIR:-/tmp}/diffvouch-patch.XXXXXX")" || {
+  echo "error: could not create a temporary patch file" >&2
+  exit 3
+}
+trap 'rm -f -- "$patch_file"' EXIT
+
+{
+  printf '%s\n' '--- BEGIN TRACKED PATCH ---'
+  git "${diff_args[@]}"
+  printf '%s\n' '--- END TRACKED PATCH ---'
+
+  for path in "${untracked_files[@]}"; do
+    printf '%s\n' "--- BEGIN UNTRACKED FILE: $path ---"
+    status=0
+    git diff --no-index --no-ext-diff --no-textconv -- /dev/null "$path" || status=$?
+    if (( status > 1 )); then
+      echo "error: failed to create patch for untracked file '$path'" >&2
+      exit 3
+    fi
+    printf '%s\n' "--- END UNTRACKED FILE: $path ---"
+  done
+} >"$patch_file"
+
+patch_bytes="$(wc -c <"$patch_file")"
+patch_bytes="${patch_bytes//[[:space:]]/}"
+if (( patch_bytes > max_diff_bytes )); then
+  echo "error: collected patch is ${patch_bytes} bytes; limit is ${max_diff_bytes} bytes" >&2
+  echo "error: review coverage cannot be guaranteed; no patch was emitted and publication is forbidden" >&2
+  exit 6
+fi
+
 printf 'DIFFVOUCH_REVIEW_CONTEXT_V1\n'
 printf 'repository=%s\n' "$repo_root"
 printf 'scope=%s\n' "$scope_label"
 printf 'head=%s\n' "${head_sha:-unborn}"
 printf 'merge_base=%s\n' "${merge_base:-none}"
+printf 'patch_bytes=%s\n' "$patch_bytes"
+printf 'max_diff_bytes=%s\n' "$max_diff_bytes"
+printf 'partial=false\n'
 printf 'untracked_files=%d\n' "${#untracked_files[@]}"
 printf 'skipped_untracked_symlinks=%d\n' "${#skipped_symlinks[@]}"
 
@@ -88,17 +128,5 @@ for path in "${skipped_symlinks[@]}"; do
   printf 'skipped_symlink=%q\n' "$path"
 done
 
-printf '%s\n' '--- BEGIN TRACKED PATCH ---'
-git "${diff_args[@]}"
-printf '%s\n' '--- END TRACKED PATCH ---'
-
-for path in "${untracked_files[@]}"; do
-  printf '%s\n' "--- BEGIN UNTRACKED FILE: $path ---"
-  status=0
-  git diff --no-index --no-ext-diff --no-textconv -- /dev/null "$path" || status=$?
-  if (( status > 1 )); then
-    echo "error: failed to create patch for untracked file '$path'" >&2
-    exit 3
-  fi
-  printf '%s\n' "--- END UNTRACKED FILE: $path ---"
-done
+cat "$patch_file"
+printf 'DIFFVOUCH_REVIEW_CONTEXT_END_V1 patch_bytes=%s\n' "$patch_bytes"

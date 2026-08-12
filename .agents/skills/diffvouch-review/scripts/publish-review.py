@@ -127,14 +127,24 @@ def decode_git_path(header_value: str) -> str | None:
     return value
 
 
-def parse_changed_lines(diff: str) -> set[tuple[str, str, int]]:
-    changed: set[tuple[str, str, int]] = set()
+DiffLocation = tuple[str, str, int]
+DiffPosition = tuple[int, int, int]
+
+
+def parse_diff_positions(diff: str) -> tuple[set[DiffLocation], dict[DiffLocation, DiffPosition]]:
+    changed: set[DiffLocation] = set()
+    positions: dict[DiffLocation, DiffPosition] = {}
     old_path: str | None = None
     new_path: str | None = None
     in_hunk = False
+    file_number = 0
+    hunk_number = 0
+    position_in_hunk = 0
     old_line = new_line = 0
     for raw_line in diff.splitlines():
         if raw_line.startswith("diff --git "):
+            file_number += 1
+            hunk_number = 0
             old_path = None
             new_path = None
             in_hunk = False
@@ -147,16 +157,68 @@ def parse_changed_lines(diff: str) -> set[tuple[str, str, int]]:
             if match:
                 old_line, new_line = map(int, match.groups())
                 in_hunk = True
+                hunk_number += 1
+                position_in_hunk = 0
         elif in_hunk and new_path is not None and raw_line.startswith("+"):
-            changed.add((new_path, "RIGHT", new_line))
+            position_in_hunk += 1
+            location = (new_path, "RIGHT", new_line)
+            changed.add(location)
+            positions[location] = (file_number, hunk_number, position_in_hunk)
             new_line += 1
         elif in_hunk and (new_path or old_path) is not None and raw_line.startswith("-"):
-            changed.add((new_path or old_path, "LEFT", old_line))
+            position_in_hunk += 1
+            location = (new_path or old_path, "LEFT", old_line)
+            changed.add(location)
+            positions[location] = (file_number, hunk_number, position_in_hunk)
             old_line += 1
         elif in_hunk and (new_path or old_path) is not None and raw_line.startswith(" "):
+            position_in_hunk += 1
+            path = new_path or old_path
+            positions[(path, "LEFT", old_line)] = (file_number, hunk_number, position_in_hunk)
+            positions[(path, "RIGHT", new_line)] = (file_number, hunk_number, position_in_hunk)
             old_line += 1
             new_line += 1
+    return changed, positions
+
+
+def parse_changed_lines(diff: str) -> set[DiffLocation]:
+    changed, _ = parse_diff_positions(diff)
     return changed
+
+
+def validate_inline_locations(comments: list[dict[str, Any]], diff: str) -> None:
+    changed_lines, positions = parse_diff_positions(diff)
+    invalid: list[str] = []
+    for comment in comments:
+        end = (comment["path"], comment["side"], comment["line"])
+        if end not in changed_lines:
+            invalid.append(f"{comment['path']}:{comment['line']} ({comment['side']})")
+            continue
+        if "start_line" not in comment:
+            continue
+        start = (comment["path"], comment["start_side"], comment["start_line"])
+        if comment["start_side"] != comment["side"]:
+            invalid.append(
+                f"{comment['path']}:{comment['start_line']}-{comment['line']} "
+                f"({comment['start_side']}..{comment['side']}; range crosses diff sides)"
+            )
+            continue
+        start_position = positions.get(start)
+        end_position = positions[end]
+        if (
+            start_position is None
+            or start_position[:2] != end_position[:2]
+            or start_position[2] >= end_position[2]
+        ):
+            invalid.append(
+                f"{comment['path']}:{comment['start_line']}-{comment['line']} "
+                f"({comment['side']}; invalid live-diff range)"
+            )
+    if invalid:
+        raise PublicationError(
+            "inline locations are not valid changed lines or ranges in the live PR diff: "
+            + ", ".join(invalid)
+        )
 
 
 def discover_repo(explicit: str | None) -> str:
@@ -210,16 +272,7 @@ def main() -> int:
             )
 
         diff = run_gh("api", "-H", "Accept: application/vnd.github.v3.diff", f"repos/{repo}/pulls/{pr}")
-        changed_lines = parse_changed_lines(diff)
-        unpublishable = [
-            f"{comment['path']}:{comment['line']} ({comment['side']})"
-            for comment in api_body["comments"]
-            if (comment["path"], comment["side"], comment["line"]) not in changed_lines
-        ]
-        if unpublishable:
-            raise PublicationError(
-                "inline locations are not changed lines in the live PR diff: " + ", ".join(unpublishable)
-            )
+        validate_inline_locations(api_body["comments"], diff)
 
         response = json.loads(
             run_gh(

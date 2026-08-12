@@ -71,14 +71,13 @@ case "$mode" in
 esac
 
 untracked_files=()
-skipped_symlinks=()
+untracked_symlinks=0
 if [[ "$include_untracked" == true ]]; then
   while IFS= read -r -d '' path; do
     if [[ -L "$path" ]]; then
-      skipped_symlinks+=("$path")
-    else
-      untracked_files+=("$path")
+      ((untracked_symlinks += 1))
     fi
+    untracked_files+=("$path")
   done < <(git ls-files --others --exclude-standard -z)
 fi
 
@@ -122,11 +121,7 @@ printf 'patch_bytes=%s\n' "$patch_bytes"
 printf 'max_diff_bytes=%s\n' "$max_diff_bytes"
 printf 'partial=false\n'
 printf 'untracked_files=%d\n' "${#untracked_files[@]}"
-printf 'skipped_untracked_symlinks=%d\n' "${#skipped_symlinks[@]}"
-
-for path in "${skipped_symlinks[@]}"; do
-  printf 'skipped_symlink=%q\n' "$path"
-done
+printf 'untracked_symlinks=%d\n' "$untracked_symlinks"
 
 cat "$patch_file"
 printf 'DIFFVOUCH_REVIEW_CONTEXT_END_V1 patch_bytes=%s\n' "$patch_bytes"

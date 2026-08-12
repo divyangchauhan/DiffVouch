@@ -77,6 +77,24 @@ class CollectorTests(unittest.TestCase):
                 result.stdout.endswith(f"DIFFVOUCH_REVIEW_CONTEXT_END_V1 patch_bytes={header_size}\n")
             )
 
+    def test_untracked_symlink_is_reviewed_without_following_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sandbox = Path(temporary_directory)
+            repository = sandbox / "repository"
+            repository.mkdir()
+            self.make_repo(repository)
+            outside = sandbox / "outside-secret.txt"
+            outside.write_text("must-not-be-read\n", encoding="utf-8")
+            (repository / "linked.txt").symlink_to(outside)
+
+            result = self.run_collector(repository, 10000)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("untracked_symlinks=1", result.stdout)
+            self.assertIn("new file mode 120000", result.stdout)
+            self.assertIn(f"+{outside}", result.stdout)
+            self.assertNotIn("must-not-be-read", result.stdout)
+
 
 class DiffParserTests(unittest.TestCase):
     @classmethod
@@ -125,6 +143,87 @@ index 422c2b7..e69de29 100644
             self.publisher.parse_changed_lines(diff),
             {("counter.txt", "RIGHT", 2), ("counter.txt", "RIGHT", 3)},
         )
+
+    def test_multiline_range_accepts_context_start_in_same_hunk(self) -> None:
+        diff = """diff --git a/file.txt b/file.txt
+index 1111111..2222222 100644
+--- a/file.txt
++++ b/file.txt
+@@ -4,3 +4,3 @@
+ context
+-old
++new
+ context
+"""
+        comments = [{
+            "path": "file.txt",
+            "start_line": 4,
+            "start_side": "RIGHT",
+            "line": 5,
+            "side": "RIGHT",
+            "body": "review",
+        }]
+        self.publisher.validate_inline_locations(comments, diff)
+
+    def test_multiline_range_rejects_invalid_start(self) -> None:
+        diff = """diff --git a/file.txt b/file.txt
+index 1111111..2222222 100644
+--- a/file.txt
++++ b/file.txt
+@@ -4 +4 @@
+-old
++new
+"""
+        comments = [{
+            "path": "file.txt",
+            "start_line": 3,
+            "start_side": "RIGHT",
+            "line": 4,
+            "side": "RIGHT",
+            "body": "review",
+        }]
+        with self.assertRaisesRegex(self.publisher.PublicationError, "invalid live-diff range"):
+            self.publisher.validate_inline_locations(comments, diff)
+
+    def test_multiline_range_rejects_cross_side_selection(self) -> None:
+        diff = """diff --git a/file.txt b/file.txt
+index 1111111..2222222 100644
+--- a/file.txt
++++ b/file.txt
+@@ -4 +4 @@
+-old
++new
+"""
+        comments = [{
+            "path": "file.txt",
+            "start_line": 4,
+            "start_side": "LEFT",
+            "line": 4,
+            "side": "RIGHT",
+            "body": "review",
+        }]
+        with self.assertRaisesRegex(self.publisher.PublicationError, "range crosses diff sides"):
+            self.publisher.validate_inline_locations(comments, diff)
+
+    def test_multiline_range_rejects_reversed_selection(self) -> None:
+        diff = """diff --git a/file.txt b/file.txt
+index 1111111..2222222 100644
+--- a/file.txt
++++ b/file.txt
+@@ -1 +1,2 @@
++first
++second
+"""
+        comments = [{
+            "path": "file.txt",
+            "start_line": 2,
+            "start_side": "RIGHT",
+            "line": 1,
+            "side": "RIGHT",
+            "body": "review",
+        }]
+        with self.assertRaisesRegex(self.publisher.PublicationError, "invalid live-diff range"):
+            self.publisher.validate_inline_locations(comments, diff)
 
 
 if __name__ == "__main__":

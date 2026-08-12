@@ -104,6 +104,8 @@ Resolve `<skill-directory>` as the directory containing this `SKILL.md`. If the 
 
 The collector buffers the full patch before emitting it and rejects patches larger than `DIFFVOUCH_MAX_DIFF_BYTES` (default `500000`) with exit code 6. A caller may set a smaller positive limit to fit its verified context capacity. Never raise the limit beyond what the harness can capture and review completely. Chunking and synthesis are deferred to the CLI implementation; the starter skill fails closed instead of claiming partial output is complete.
 
+For an untracked symbolic link, collect Git's mode-`120000` patch containing the literal link target. Never dereference or read the target.
+
 ## Review boundaries
 
 - Review only behavior changed or materially affected by the selected diff.

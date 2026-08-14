@@ -78,7 +78,7 @@ Publishing is a separate, explicitly authorized side effect performed by the inv
 9. If preflight rejects a non-commentable location, remove only that entry from `comments` and invoke the publisher once more so the finding remains in the overall report. Report any other failure exactly and preserve the completed local report. Never retry automatically after a submission was attempted because its outcome may be ambiguous.
 10. Report the returned review URL and inline-comment count when publication succeeds.
 
-The canonical skill uses only Agent Skills conventions, Git, Python 3, and `gh`. Harness-specific wrappers may delegate and select models differently, but must preserve this workflow and contract so it works in Codex, Claude Code, Cursor, and other Agent Skills-compatible harnesses.
+The canonical skill uses only Agent Skills conventions, Git, Python 3, and `gh`. Harnesses may delegate and select models differently, but must preserve this workflow and contract so it works in Codex, Claude Code, Cursor, and other Agent Skills-compatible harnesses.
 
 See [references/harness-compatibility.md](references/harness-compatibility.md) for discovery paths and harness requirements.
 

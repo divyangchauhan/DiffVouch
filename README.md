@@ -1,109 +1,99 @@
 # DiffVouch
 
-DiffVouch is a portable Agent Skill that reviews Git working-tree, staged, or
-branch changes, reports actionable findings, and assigns a transparent rating
-out of 5. When explicitly requested, it can publish one comment-only GitHub PR
-review with eligible inline comments.
+DiffVouch is a portable Agent Skill for reviewing Git changes. It reviews the
+requested diff, reports actionable findings, and gives the change a transparent
+rating out of 5.
 
-The repository is a skill source, not a project-local installation. The
-canonical package is [`skills/diffvouch-review`](skills/diffvouch-review).
+## Current capabilities
+
+- Review tracked and untracked working-tree changes.
+- Review staged changes only.
+- Review committed branch changes against `main` or another base branch.
+- Review a GitHub pull request.
+- Run the review in an isolated subagent or fresh process when the harness
+  supports it.
+- Use an explicitly requested model and reasoning-effort level when the harness
+  supports those controls.
+- Publish one comment-only GitHub review, including eligible inline comments,
+  only when explicitly requested.
+- Fail without a rating when the complete patch cannot be captured. The starter
+  skill currently accepts patches up to 500,000 bytes by default.
+
+DiffVouch never approves a pull request or formally requests changes. GitHub
+publication always uses the `COMMENT` review event.
 
 ## Requirements
 
 - Git
 - Python 3
 - An Agent Skills-compatible coding agent
-- GitHub CLI (`gh`) authenticated with pull-request write access only when
-  publishing a review
+- GitHub CLI (`gh`) authenticated with pull-request write access when publishing
+  a review
 
-## Install with the skills CLI
+## Install
 
-Install globally so the skill can review any repository without executing a
-copy controlled by the target branch:
+The recommended method is the [Vercel Skills CLI](https://github.com/vercel-labs/skills).
+Install DiffVouch globally to make it available in every repository:
 
 ```bash
-npx skills add divyangchauhan/DiffLoom --skill diffvouch-review --global
+npx skills add divyangchauhan/DiffVouch \
+  --skill diffvouch-review \
+  --global
 ```
 
-Install non-interactively for selected agents:
+The interactive installer lets you select the coding agents that should receive
+the skill. For a non-interactive Codex installation:
 
 ```bash
-npx skills add divyangchauhan/DiffLoom \
+npx skills add divyangchauhan/DiffVouch \
+  --skill diffvouch-review \
+  --global \
+  --agent codex \
+  --yes
+```
+
+Select multiple harnesses by repeating `--agent`:
+
+```bash
+npx skills add divyangchauhan/DiffVouch \
   --skill diffvouch-review \
   --global \
   --agent codex \
   --agent claude-code \
   --agent cursor \
-  --agent gemini-cli \
-  --agent opencode \
   --yes
 ```
 
-List the skill without installing it:
+Confirm the global installation:
 
 ```bash
-npx skills add divyangchauhan/DiffLoom --list
+npx skills ls --global
 ```
 
-Use it for one session without installing:
+To use DiffVouch for one session without installing it:
 
 ```bash
-npx skills use divyangchauhan/DiffLoom@diffvouch-review --agent claude-code
+npx skills use divyangchauhan/DiffVouch@diffvouch-review --agent claude-code
 ```
 
-Update an existing installation:
-
-```bash
-npx skills update diffvouch-review --global
-```
-
-## Install manually
-
-Clone the repository into a trusted location, then copy or symlink the complete
-`skills/diffvouch-review` directory into the global skill directory documented
-by your agent. Do not install only `SKILL.md`; the skill also requires its
+For a manual installation, copy or symlink the complete
+`skills/diffvouch-review` directory into a global skill directory supported by
+your agent. The complete directory is required because the skill uses bundled
 scripts and references.
-
-For Codex, you can also ask the built-in installer:
-
-```text
-$skill-installer Install diffvouch-review from
-https://github.com/divyangchauhan/DiffLoom/tree/main/skills/diffvouch-review
-```
 
 ## Use
 
-Examples:
+Ask your coding agent to use `$diffvouch-review`. For example:
 
 ```text
 Use $diffvouch-review to review my uncommitted changes.
+Use $diffvouch-review to review my staged changes.
 Use $diffvouch-review to review committed changes against main.
+Use $diffvouch-review to review this PR.
 Use $diffvouch-review with model=<model-id> effort=high to review this PR.
 Use $diffvouch-review to review this PR and publish the review to GitHub.
 ```
 
-Nothing is published unless the current request explicitly asks for it. GitHub
-publication always uses the `COMMENT` event; the skill never approves a PR or
-formally requests changes.
-
-## Repository layout
-
-```text
-skills/
-└── diffvouch-review/
-    ├── SKILL.md
-    ├── agents/openai.yaml
-    ├── references/
-    ├── scripts/
-    └── tests/
-```
-
-## Validate locally
-
-```bash
-python3 -m unittest discover -s skills/diffvouch-review/tests -v
-npx skills add . --list
-```
-
-The product direction and future CLI requirements are documented in
-[`PRD.md`](PRD.md).
+If you do not specify a scope, DiffVouch reviews the current working-tree
+changes. Nothing is posted to GitHub unless the current request explicitly asks
+for publication.

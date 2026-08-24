@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diffvouch"
+version = "0.1.0"
+description = "Local-first AI reviews for Git diffs and GitHub pull requests"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "DiffVouch contributors" }]
+dependencies = [
+  "keyring>=25.0",
+  "platformdirs>=4.0",
+  "pydantic>=2.10",
+  "PyJWT[crypto]>=2.10",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.11",
+]
+
+[project.scripts]
+diffvouch = "diffvouch.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/diffvouch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

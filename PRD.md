@@ -35,7 +35,7 @@ Secondary future audiences include:
 ## 4. Non-Goals for MVP
 
 - Hosting a cloud review service.
-- Acting as a GitHub App or automatically reviewing every pull request.
+- Operating a DiffVouch-owned global GitHub App or automatically reviewing every pull request.
 - Automatically approving or requesting changes on GitHub.
 - Replacing tests, linters, static-analysis tools, or human reviewers.
 - Editing code or automatically applying suggestions.
@@ -72,6 +72,18 @@ diffvouch review --provider claude --transport api
 
 CLI transport is the default. API usage must be explicitly selected so DiffVouch cannot unexpectedly incur API charges.
 
+### Configure Provider Authentication
+
+```bash
+diffvouch auth login openai
+diffvouch auth login claude
+diffvouch auth set-key openai
+diffvouch auth set-key anthropic
+diffvouch auth status
+```
+
+Subscription login delegates to the installed Codex or Claude Code CLI. API keys are read from a hidden prompt or stdin and stored in the operating-system credential store, with a mode-0600 user configuration file available as a fallback. API keys are never accepted as command-line argument values.
+
 ### Publish to GitHub
 
 ```bash
@@ -79,6 +91,16 @@ diffvouch review --provider codex --base main --publish
 ```
 
 DiffVouch publishes an overall comment-only PR review containing the rating and rubric breakdown. Actionable findings are attached to relevant changed lines where GitHub permits it. Publishing never approves a PR or formally requests changes.
+
+Before publishing for the first time, the user configures a private GitHub App that they or their organization owns:
+
+```bash
+diffvouch github app create
+diffvouch github app configure --app-id 123 --slug my-diffvouch --private-key app.pem
+diffvouch github app status --repo owner/repository
+```
+
+Published reviews appear as `<app-slug>[bot]`. DiffVouch does not operate a shared hosted bot.
 
 ### Use DiffVouch as a Quality Gate
 
@@ -117,7 +139,7 @@ Provider controls:
 ```text
 --provider <codex|claude>
 --transport <cli|api>     Default: cli
---model <model-id>        Optional provider-specific override
+--model <model-id>        Optional CLI override; required for API unless configured
 ```
 
 Output and publishing:
@@ -147,6 +169,19 @@ General behavior:
 --help
 ```
 
+Authentication and GitHub App commands:
+
+```text
+diffvouch auth login <openai|claude>
+diffvouch auth status [openai|claude|all]
+diffvouch auth set-key <openai|anthropic> [--stdin] [--storage auto|keyring|file]
+diffvouch auth remove-key <openai|anthropic>
+diffvouch github app create [--owner <organization>] [--host <hostname>]
+diffvouch github app configure [options]
+diffvouch github app status [--repo <owner/name>]
+diffvouch github app remove
+```
+
 Incompatible argument combinations must fail before invoking an AI provider.
 
 ## 7. Repository Configuration
@@ -157,7 +192,7 @@ DiffVouch supports an optional committed `.diffvouch.yml` file:
 version: 1
 
 provider:
-  default_transport: cli
+  default_transport: cli # the only allowed repository default; API requires a CLI flag
   models:
     codex: null
     claude: null
@@ -181,10 +216,6 @@ review:
 quality_gate:
   fail_below: null
   fail_on_severity: null
-
-github:
-  publish_summary: true
-  publish_inline_comments: true
 ```
 
 Configuration rules:
@@ -194,6 +225,8 @@ Configuration rules:
 - CLI options override repository configuration.
 - A provider remains mandatory on the command line.
 - Configuration cannot enable automatic publishing or contain credentials.
+- DiffVouch reads repository configuration from the trusted base commit, not from
+  the changes currently under review. An explicit `--config` path is user-controlled.
 - Excluded files appear in the local summary with the reason they were skipped.
 
 ## 8. Diff Collection Requirements
@@ -245,14 +278,16 @@ The request contains repository metadata, revision metadata, the sanitized effec
 
 ### Codex Adapter
 
-- CLI transport invokes the locally installed and authenticated Codex CLI.
-- API transport uses `OPENAI_API_KEY`.
+- CLI transport invokes the locally installed and authenticated Codex CLI through `codex exec` with an ephemeral session, read-only sandbox, and JSON output schema.
+- `diffvouch auth login openai` delegates ChatGPT subscription authentication to `codex login`; DiffVouch never copies or parses Codex credentials.
+- API transport uses an explicitly selected OpenAI API key from the environment or DiffVouch's credential store.
 - Missing CLI authentication produces setup guidance and never silently falls back to the API.
 
 ### Claude Adapter
 
-- CLI transport invokes the locally installed and authenticated Claude Code CLI.
-- API transport uses `ANTHROPIC_API_KEY`.
+- CLI transport invokes the locally installed and authenticated Claude Code CLI with tools disabled, session persistence disabled, and a JSON output schema.
+- `diffvouch auth login claude` delegates subscription authentication to `claude auth login`; DiffVouch never copies or parses Claude credentials.
+- API transport uses an explicitly selected Anthropic API key from the environment or DiffVouch's credential store.
 - Missing CLI authentication produces setup guidance and never silently falls back to the API.
 
 ### Provider Safety
@@ -343,6 +378,7 @@ JSON output is stable, versioned, and contains all review data without terminal 
   "scope": {
     "mode": "working-tree",
     "baseRef": "HEAD",
+    "baseSha": "...",
     "mergeBase": null,
     "headSha": "..."
   },
@@ -388,17 +424,24 @@ Additive fields may be introduced within schema version 1. Renaming, removing, o
 
 ### Authentication and Discovery
 
-The MVP uses the authenticated GitHub CLI, `gh`, instead of storing GitHub credentials.
+DiffVouch publishes through a private GitHub App owned by the user or repository-owning organization. There is no DiffVouch-hosted bot or backend. The app requires `Pull requests: Read and write`; `Contents` access is unnecessary while reviews use the local checkout.
 
 DiffVouch must:
 
-1. Read the current Git remote.
-2. Resolve the GitHub owner and repository.
-3. Find an open PR whose head matches the current branch.
-4. Allow `--repo` and `--pr` to override discovery.
-5. Verify authentication and write access before publishing.
+1. Store App ID, app slug, hostname, API/web base URLs, and the private key locally. Prefer macOS Keychain, Windows Credential Manager, or Linux Secret Service; allow only an explicit mode-0600 user secret file as fallback.
+2. Sign an RS256 JWT with an issued-at time adjusted for clock drift and an expiration no more than ten minutes in the future.
+3. Locate the repository installation with `GET /repos/{owner}/{repo}/installation`.
+4. Exchange the JWT at `POST /app/installations/{installation_id}/access_tokens` for an installation token restricted to the current repository and `pull_requests: write`.
+5. Keep installation tokens only in memory and discard them after the command. Tokens are generated on demand and never written to configuration or logs.
+6. Read the current Git remote and resolve the GitHub hostname, owner, and repository.
+7. Find an open PR whose head matches the current branch, or honor `--repo` and `--pr` overrides.
+8. Verify that the locally reviewed base and head commits match the live PR immediately before publishing.
 
 Failure to resolve exactly one PR stops publishing and prints corrective guidance. The completed local review remains available.
+
+Private GitHub Apps can only be installed on the account that owns them. An organization-owned repository therefore normally requires an app created under that organization and installation by an organization owner or repository administrator. GitHub Enterprise Server is supported through configurable web and REST API base URLs.
+
+Private keys never expire automatically. The CLI must explain how to revoke or rotate them, never copy them into a repository, Git configuration, shell history, or project `.env`, and never log private-key contents, JWTs, or installation tokens.
 
 ### Publication Behavior
 
@@ -410,9 +453,10 @@ Failure to resolve exactly one PR stops publishing and prints corrective guidanc
 - Findings on non-commentable lines move to the summary.
 - The summary includes the score, rubric breakdown, finding count, provider, and reviewed commit.
 - Each invocation creates a new review associated with the reviewed commit.
-- DiffVouch confirms that the PR head SHA still matches the reviewed SHA immediately before publishing.
-- A mismatched SHA aborts publication and requests a fresh review.
+- DiffVouch confirms that the PR base and head SHAs still match the reviewed SHAs immediately before publishing.
+- A mismatched base or head SHA aborts publication and requests a fresh review.
 - Partial publication failures report exactly what was posted.
+- Reviews are attributed to `<app-slug>[bot]`, not to the human invoking DiffVouch.
 
 ## 15. Exit Codes
 
@@ -449,7 +493,9 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - Human-readable terminal output.
 - Versioned JSON output.
 - Optional score and severity quality gates.
-- GitHub authentication and PR discovery through `gh`.
+- User- or organization-owned private GitHub App configuration.
+- RS256 app JWTs and repository-scoped, memory-only installation tokens.
+- GitHub PR discovery through the installation identity.
 - Explicit GitHub publication.
 - PR summary plus eligible inline comments.
 - GitHub `COMMENT` review state only.
@@ -559,7 +605,8 @@ The MVP is ready when a developer can:
 5. Override the rubric through a committed configuration file.
 6. Use the result as an optional local quality gate.
 7. Explicitly publish the same review to the correct GitHub PR.
-8. Trust that DiffVouch will not publish, incur API charges, fetch Git state, or execute repository code without an explicit request.
+8. See the published review attributed to the user's own `<app-slug>[bot]` identity.
+9. Trust that DiffVouch will not publish, incur API charges, fetch Git state, or execute repository code without an explicit request.
 
 ## 19. Success Measures
 
@@ -568,7 +615,7 @@ For an initial private beta:
 - At least 90% of reviews complete without manual prompt repair.
 - At least 80% of published inline findings resolve to valid GitHub diff positions.
 - Fewer than 10% of findings are marked unhelpful by users.
-- Median setup time is under five minutes for a developer already authenticated with a provider CLI and `gh`.
+- Median AI-provider setup time is under five minutes for a developer already authenticated with a provider CLI.
 - No review is published without an explicit `--publish`.
 - No API transport is used without explicit `--transport api`.
 - The same structured provider response always produces the same rating and gate result.
@@ -585,7 +632,7 @@ Add Codex CLI, Claude Code CLI, OpenAI API, and Anthropic API transports with ou
 
 ### Phase 3: GitHub Publication
 
-Add `gh`-based authentication, repository and PR discovery, line-position mapping, summary generation, inline comments, and head-SHA safety checks.
+Add private GitHub App configuration, secure private-key storage, JWT and installation-token authentication, repository and PR discovery, line-position mapping, summary generation, inline comments, and head-SHA safety checks.
 
 ### Phase 4: Hardening and Release
 
@@ -602,7 +649,8 @@ Complete cross-platform tests, large-diff handling, redaction, prompt-injection 
 - All local changes are reviewed by default.
 - Base-branch reviews compare the merge base to the current working tree.
 - GitHub publication is explicit and uses a comment-only review.
-- GitHub authentication is delegated to `gh`.
+- GitHub publication uses a private app owned by the user or repository-owning organization.
+- DiffVouch stores long-lived GitHub App private keys only in the OS credential store or a mode-0600 user fallback file and stores installation tokens only in memory.
 - Ratings use a built-in weighted rubric with optional repository overrides.
 - Reviews are informational unless a quality threshold is configured.
 - The initial configuration format is `.diffvouch.yml`.

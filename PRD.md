@@ -35,7 +35,7 @@ Secondary future audiences include:
 ## 4. Non-Goals for MVP
 
 - Hosting a cloud review service.
-- Acting as a GitHub App or automatically reviewing every pull request.
+- Operating a DiffVouch-owned global GitHub App or automatically reviewing every pull request.
 - Automatically approving or requesting changes on GitHub.
 - Replacing tests, linters, static-analysis tools, or human reviewers.
 - Editing code or automatically applying suggestions.
@@ -118,6 +118,7 @@ Provider controls:
 --provider <codex|claude>
 --transport <cli|api>     Default: cli
 --model <model-id>        Optional provider-specific override
+--effort <level>          Optional provider reasoning-effort override
 ```
 
 Output and publishing:
@@ -140,7 +141,7 @@ Quality gates:
 General behavior:
 
 ```text
---config <path>           Override repository configuration path
+--config <path>           Override configuration path; repository-local paths resolve from the trusted commit
 --verbose
 --no-color
 --version
@@ -182,9 +183,6 @@ quality_gate:
   fail_below: null
   fail_on_severity: null
 
-github:
-  publish_summary: true
-  publish_inline_comments: true
 ```
 
 Configuration rules:
@@ -194,6 +192,11 @@ Configuration rules:
 - CLI options override repository configuration.
 - A provider remains mandatory on the command line.
 - Configuration cannot enable automatic publishing or contain credentials.
+- API transport cannot be selected by repository configuration.
+- Repository configuration is read from the trusted base commit. Changes to the
+  configuration remain review data until they are merged.
+- An explicit configuration outside the repository is read from the local
+  filesystem and is therefore an intentional user-controlled trust source.
 - Excluded files appear in the local summary with the reason they were skipped.
 
 ## 8. Diff Collection Requirements
@@ -229,7 +232,10 @@ With `--base <ref>`, DiffVouch must:
 
 ### Large Diffs
 
-When the configured size limit is exceeded, DiffVouch splits the diff by file and hunk, reviews chunks independently, and performs a final synthesis pass to deduplicate findings and calculate one rating.
+DiffVouch bounds Git output while reading it and fails closed when the configured
+maximum diff size is exceeded. Complete patches within that maximum are split by
+file and hunk at the provider chunk limit, reviewed independently, and combined
+deterministically into one deduplicated result.
 
 Any omitted content makes the review partial. Partial reviews must be clearly labeled and cannot be published in the MVP.
 
@@ -246,20 +252,22 @@ The request contains repository metadata, revision metadata, the sanitized effec
 ### Codex Adapter
 
 - CLI transport invokes the locally installed and authenticated Codex CLI.
-- API transport uses `OPENAI_API_KEY`.
+- API transport uses `OPENAI_API_KEY` or a key stored through `diffvouch auth set-key openai`.
 - Missing CLI authentication produces setup guidance and never silently falls back to the API.
 
 ### Claude Adapter
 
 - CLI transport invokes the locally installed and authenticated Claude Code CLI.
-- API transport uses `ANTHROPIC_API_KEY`.
+- API transport uses `ANTHROPIC_API_KEY` or a key stored through `diffvouch auth set-key anthropic`.
 - Missing CLI authentication produces setup guidance and never silently falls back to the API.
 
 ### Provider Safety
 
 Repository content, comments, filenames, and diff text are untrusted data. Instructions found in reviewed code must not override DiffVouch's review instructions.
 
-Provider output must validate against the result schema. DiffVouch may make one structured-output repair attempt. If it also fails, DiffVouch returns a provider-output error without publishing anything.
+Provider output must validate against the result schema. Invalid output fails
+without a repair call, rating, or publication so DiffVouch cannot silently incur
+additional API cost or claim an incomplete review.
 
 ## 10. Review Rubric and Rating
 
@@ -281,7 +289,8 @@ Rating meanings:
 - `1.5-2.4`: High risk; substantial fixes recommended.
 - `1.0-1.4`: Critical risk; should not be merged in its current form.
 
-Critical correctness or security findings cap the overall score at 2.4. High-severity findings in those categories cap it at 3.4. DiffVouch enforces these caps after receiving provider output.
+Any critical finding caps the overall score at 1.5. Any high-severity finding
+caps it at 2.5. DiffVouch enforces these caps after receiving provider output.
 
 Repositories may replace weights and add instructions, but all five dimensions remain present so ratings stay comparable.
 
@@ -343,13 +352,15 @@ JSON output is stable, versioned, and contains all review data without terminal 
   "scope": {
     "mode": "working-tree",
     "baseRef": "HEAD",
+    "baseSha": "...",
     "mergeBase": null,
     "headSha": "..."
   },
   "provider": {
     "name": "codex",
     "transport": "cli",
-    "model": "..."
+    "model": "...",
+    "effort": null
   },
   "rating": {
     "overall": 3.8,
@@ -364,11 +375,13 @@ JSON output is stable, versioned, and contains all review data without terminal 
   },
   "findings": [],
   "positiveObservations": [],
+  "needsVerification": [],
   "files": {
     "reviewed": [],
     "excluded": [],
     "binary": [],
-    "omitted": []
+    "omitted": [],
+    "redactions": 0
   },
   "gate": {
     "passed": true,
@@ -377,7 +390,8 @@ JSON output is stable, versioned, and contains all review data without terminal 
   "publication": {
     "requested": false,
     "published": false,
-    "url": null
+    "url": null,
+    "bot": null
   }
 }
 ```
@@ -388,15 +402,28 @@ Additive fields may be introduced within schema version 1. Renaming, removing, o
 
 ### Authentication and Discovery
 
-The MVP uses the authenticated GitHub CLI, `gh`, instead of storing GitHub credentials.
+DiffVouch publishes through a private GitHub App owned by the user or the
+repository-owning organization. There is no DiffVouch-hosted bot or backend.
+The app requires `Pull requests: Read and write`; `Contents` access and webhooks
+are unnecessary because reviews use the local checkout and run only on demand.
 
 DiffVouch must:
 
-1. Read the current Git remote.
-2. Resolve the GitHub owner and repository.
-3. Find an open PR whose head matches the current branch.
-4. Allow `--repo` and `--pr` to override discovery.
-5. Verify authentication and write access before publishing.
+1. Store the App ID, slug, hostname, API/web base URLs, and private key locally.
+   Prefer the OS credential manager and allow a mode-0600 user file only as fallback.
+2. Sign a short-lived RS256 JWT with an issued-at adjustment for clock drift.
+3. Locate the repository installation with `GET /repos/{owner}/{repo}/installation`.
+4. Exchange the JWT for an installation token restricted to the current repository
+   and `pull_requests: write`.
+5. Keep installation tokens only in memory and never log credentials or tokens.
+6. Read the current Git remote and resolve hostname, owner, and repository.
+7. Find exactly one open PR matching the local branch and head SHA, including fork PRs,
+   or honor explicit `--repo` and `--pr` overrides.
+8. Revalidate the reviewed base and head SHAs immediately before publication.
+
+Private apps can only be installed on the account that owns them, so organization
+repositories normally require an app created under that organization. GitHub
+Enterprise Server is supported through configurable web and REST API base URLs.
 
 Failure to resolve exactly one PR stops publishing and prints corrective guidance. The completed local review remains available.
 
@@ -410,8 +437,9 @@ Failure to resolve exactly one PR stops publishing and prints corrective guidanc
 - Findings on non-commentable lines move to the summary.
 - The summary includes the score, rubric breakdown, finding count, provider, and reviewed commit.
 - Each invocation creates a new review associated with the reviewed commit.
-- DiffVouch confirms that the PR head SHA still matches the reviewed SHA immediately before publishing.
-- A mismatched SHA aborts publication and requests a fresh review.
+- DiffVouch confirms that the PR base and head SHAs still match the reviewed SHAs immediately before publishing.
+- A mismatched base or head SHA aborts publication and requests a fresh review.
+- Reviews are attributed to `<app-slug>[bot]`, not the invoking human.
 - Partial publication failures report exactly what was posted.
 
 ## 15. Exit Codes
@@ -449,7 +477,7 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - Human-readable terminal output.
 - Versioned JSON output.
 - Optional score and severity quality gates.
-- GitHub authentication and PR discovery through `gh`.
+- User- or organization-owned private GitHub App authentication and PR discovery.
 - Explicit GitHub publication.
 - PR summary plus eligible inline comments.
 - GitHub `COMMENT` review state only.
@@ -494,7 +522,7 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - Invalid base ref: report it without fetching.
 - No merge base: explain that the histories are unrelated.
 - Provider timeout or interruption: publish nothing.
-- Invalid model response: perform one repair attempt and then fail safely.
+- Invalid model response: fail safely without assigning a rating or publishing.
 - Detached `HEAD`: local review works; PR lookup requires `--pr`.
 - Dirty tree with `--committed-only`: ignore local modifications and state that they were excluded.
 - Changed PR head: abort publishing.
@@ -516,7 +544,7 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - Each adapter invokes only the selected provider.
 - CLI mode never silently switches to a billable API.
 - API mode requires the correct environment variable.
-- Invalid structured output triggers exactly one repair attempt.
+- Invalid structured output fails closed without a rating or publication.
 - Repository content cannot override review instructions.
 - Timeout and cancellation produce no GitHub side effects.
 
@@ -565,10 +593,10 @@ The MVP is ready when a developer can:
 
 For an initial private beta:
 
-- At least 90% of reviews complete without manual prompt repair.
+- At least 90% of reviews return valid structured output on the first provider call.
 - At least 80% of published inline findings resolve to valid GitHub diff positions.
 - Fewer than 10% of findings are marked unhelpful by users.
-- Median setup time is under five minutes for a developer already authenticated with a provider CLI and `gh`.
+- Median setup time is under five minutes for a developer already authenticated with a provider CLI and a configured GitHub App.
 - No review is published without an explicit `--publish`.
 - No API transport is used without explicit `--transport api`.
 - The same structured provider response always produces the same rating and gate result.
@@ -581,11 +609,14 @@ Implement Git inspection, effective-patch construction, configuration validation
 
 ### Phase 2: Provider Adapters
 
-Add Codex CLI, Claude Code CLI, OpenAI API, and Anthropic API transports with output validation, repair handling, timeouts, and cancellation.
+Add Codex CLI, Claude Code CLI, OpenAI API, and Anthropic API transports with
+strict output validation, timeouts, and cancellation.
 
 ### Phase 3: GitHub Publication
 
-Add `gh`-based authentication, repository and PR discovery, line-position mapping, summary generation, inline comments, and head-SHA safety checks.
+Add private GitHub App configuration, secure key storage, RS256 and installation-token
+authentication, repository and PR discovery, line mapping, summary generation,
+inline comments, and base/head SHA safety checks.
 
 ### Phase 4: Hardening and Release
 
@@ -602,8 +633,9 @@ Complete cross-platform tests, large-diff handling, redaction, prompt-injection 
 - All local changes are reviewed by default.
 - Base-branch reviews compare the merge base to the current working tree.
 - GitHub publication is explicit and uses a comment-only review.
-- GitHub authentication is delegated to `gh`.
+- GitHub reviews use a private app owned by the user or repository organization.
 - Ratings use a built-in weighted rubric with optional repository overrides.
 - Reviews are informational unless a quality threshold is configured.
 - The initial configuration format is `.diffvouch.yml`.
-- The implementation language and packaging technology remain engineering choices, provided this CLI contract and the acceptance requirements are preserved.
+- The CLI is implemented in Go and distributed as standalone native executables
+  for macOS, Linux, and Windows on AMD64 and ARM64. End users do not need a Go runtime.

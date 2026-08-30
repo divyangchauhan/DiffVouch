@@ -1,39 +1,145 @@
 # DiffVouch
 
-DiffVouch is a portable Agent Skill for reviewing Git changes. It reviews the
-requested diff, reports actionable findings, and gives the change a transparent
-rating out of 5.
+DiffVouch is a local-first Go CLI and portable Agent Skill for reviewing Git
+diffs and GitHub pull requests. It reports blocking and non-blocking findings,
+explains recommended fixes, and gives each change a transparent rating out of 5.
 
-## Current capabilities
+The CLI is distributed as a standalone native executable. Users do not need Go,
+Python, Node.js, or a DiffVouch-hosted service to run it. Git is required. Codex
+or Claude Code is required only when using the corresponding subscription; API
+transport talks directly to OpenAI or Anthropic.
 
-- Review tracked and untracked working-tree changes.
-- Review staged changes only.
-- Review committed branch changes against `main` or another base branch.
-- Review a GitHub pull request.
-- Run the review in an isolated subagent or fresh process when the harness
-  supports it.
-- Use an explicitly requested model and reasoning-effort level when the harness
-  supports those controls.
-- Publish one comment-only GitHub review, including eligible inline comments,
-  only when explicitly requested.
-- Fail without a rating when the complete patch cannot be captured. The starter
-  skill currently accepts patches up to 500,000 bytes by default.
+## Install the CLI
 
-DiffVouch never approves a pull request or formally requests changes. GitHub
-publication always uses the `COMMENT` review event.
+Download the archive for your operating system and architecture from
+[GitHub Releases](https://github.com/divyangchauhan/DiffVouch/releases), verify
+it against `checksums.txt`, and place `diffvouch` (or `diffvouch.exe`) on your
+`PATH`.
 
-## Requirements
+Developers with Go installed can install from source:
 
-- Git
-- Python 3
-- An Agent Skills-compatible coding agent
-- GitHub CLI (`gh`) authenticated with pull-request write access when publishing
-  a review
+```bash
+go install github.com/divyangchauhan/DiffVouch/cmd/diffvouch@latest
+```
 
-## Install
+Confirm the installation:
 
-The recommended method is the [Vercel Skills CLI](https://github.com/vercel-labs/skills).
-Install DiffVouch globally to make it available in every repository:
+```bash
+diffvouch --version
+diffvouch --help
+```
+
+Tagged releases are built for macOS, Linux, and Windows on AMD64 and ARM64.
+
+## Configure an AI provider
+
+Use an existing ChatGPT/Codex subscription:
+
+```bash
+diffvouch auth login openai
+diffvouch auth status openai
+```
+
+Use an existing Claude subscription:
+
+```bash
+diffvouch auth login claude
+diffvouch auth status claude
+```
+
+To use usage-based APIs instead, securely store a key:
+
+```bash
+diffvouch auth set-key openai
+diffvouch auth set-key anthropic
+```
+
+DiffVouch prefers the operating-system credential manager and falls back to a
+mode-0600 user secret file when no keyring backend is available. API transport
+is never selected unless the user passes `--transport api`.
+
+## Review changes
+
+Review tracked and untracked working-tree changes:
+
+```bash
+diffvouch review --provider codex
+```
+
+Other common scopes:
+
+```bash
+diffvouch review --provider claude --staged-only
+diffvouch review --provider codex --base main
+diffvouch review --provider codex --base main --committed-only
+diffvouch review --provider codex --model gpt-5.6-sol --effort xhigh
+diffvouch review --provider codex --transport api --model gpt-5.6-sol
+diffvouch review --provider claude --format json --output review.json
+```
+
+Use the result as a local quality gate:
+
+```bash
+diffvouch review --provider codex --fail-below 3.5
+diffvouch review --provider codex --fail-on-severity high
+```
+
+Repository-specific rules can be committed in `.diffvouch.yml`. DiffVouch reads
+that policy from the trusted base commit so a change cannot suppress its own
+review. A repository cannot select billable API transport or enable publishing.
+
+## Publish reviews as your GitHub bot
+
+DiffVouch does not operate a shared bot. Create a private GitHub App owned by
+you or by the organization that owns the repositories it will review:
+
+```bash
+diffvouch github app create
+```
+
+Configure the app with:
+
+- Pull requests: Read and write
+- Contents: No access
+- Webhooks: Disabled
+- Subscribed events: None
+
+Install it on selected repositories, download a private-key PEM, then configure
+and validate it locally:
+
+```bash
+diffvouch github app configure \
+  --app-id 123456 \
+  --slug my-diffvouch \
+  --private-key ~/Downloads/my-diffvouch.pem
+
+diffvouch github app status --repo owner/repository
+```
+
+Review and publish a checked-out pull request:
+
+```bash
+diffvouch review --provider codex --pr 123 --publish
+```
+
+Or discover the current branch's pull request from a base comparison:
+
+```bash
+diffvouch review --provider claude --base main --publish
+```
+
+Reviews appear as `<app-slug>[bot]`. DiffVouch creates a repository-restricted
+installation token on demand, keeps it only in memory, revalidates the live PR
+base and head, and posts exactly one `COMMENT` review with eligible inline
+comments. It never approves or requests changes.
+
+GitHub Enterprise Server is supported through `--host`, `--api-base-url`,
+`--web-base-url`, and `--github-host`.
+
+## Install the Agent Skill
+
+The standalone Agent Skill remains available for Codex, Claude Code, Cursor,
+and other Agent Skills-compatible harnesses:
 
 ```bash
 npx skills add divyangchauhan/DiffVouch \
@@ -41,59 +147,18 @@ npx skills add divyangchauhan/DiffVouch \
   --global
 ```
 
-The interactive installer lets you select the coding agents that should receive
-the skill. For a non-interactive Codex installation:
-
-```bash
-npx skills add divyangchauhan/DiffVouch \
-  --skill diffvouch-review \
-  --global \
-  --agent codex \
-  --yes
-```
-
-Select multiple harnesses by repeating `--agent`:
-
-```bash
-npx skills add divyangchauhan/DiffVouch \
-  --skill diffvouch-review \
-  --global \
-  --agent codex \
-  --agent claude-code \
-  --agent cursor \
-  --yes
-```
-
-Confirm the global installation:
-
-```bash
-npx skills ls --global
-```
-
-To use DiffVouch for one session without installing it:
-
-```bash
-npx skills use divyangchauhan/DiffVouch@diffvouch-review --agent claude-code
-```
-
-For a manual installation, copy or symlink the complete
-`skills/diffvouch-review` directory into a global skill directory supported by
-your agent. The complete directory is required because the skill uses bundled
-scripts and references.
-
-## Use
-
-Ask your coding agent to use `$diffvouch-review`. For example:
+Then ask your agent:
 
 ```text
 Use $diffvouch-review to review my uncommitted changes.
-Use $diffvouch-review to review my staged changes.
-Use $diffvouch-review to review committed changes against main.
-Use $diffvouch-review to review this PR.
-Use $diffvouch-review with model=<model-id> effort=high to review this PR.
-Use $diffvouch-review to review this PR and publish the review to GitHub.
 ```
 
-If you do not specify a scope, DiffVouch reviews the current working-tree
-changes. Nothing is posted to GitHub unless the current request explicitly asks
-for publication.
+## Build and test
+
+```bash
+go test ./...
+go vet ./...
+go build -trimpath ./cmd/diffvouch
+```
+
+GoReleaser packages versioned standalone binaries when a `v*` tag is pushed.

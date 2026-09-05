@@ -35,7 +35,7 @@ func Execute(version string) error {
 
 type reviewFlags struct {
 	provider, transport, model, effort, base, format, output, repo, githubHost string
-	configPath, failSeverity                                                   string
+	configPath, failSeverity, reviewPrompt, reviewPromptFile                   string
 	pr                                                                         int
 	committedOnly, stagedOnly, publish, noColor, verbose                       bool
 	excludes                                                                   []string
@@ -67,6 +67,8 @@ func reviewCommand() *cobra.Command {
 	command.Flags().StringVar(&flags.failSeverity, "fail-on-severity", "", "fail at or above this severity")
 	command.Flags().IntVar(&flags.maxDiffBytes, "max-diff-bytes", 0, "override diff safety limit")
 	command.Flags().StringVar(&flags.configPath, "config", "", "explicit repository config path")
+	command.Flags().StringVar(&flags.reviewPrompt, "prompt", "", "replace default review guidance for this run")
+	command.Flags().StringVar(&flags.reviewPromptFile, "prompt-file", "", "read replacement review guidance from a file or '-' for stdin")
 	command.Flags().BoolVar(&flags.noColor, "no-color", false, "disable color output")
 	command.Flags().BoolVar(&flags.verbose, "verbose", false, "enable verbose diagnostics")
 	_ = command.MarkFlagRequired("provider")
@@ -94,6 +96,13 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 	}
 	if flags.maxDiffBytes != 0 && flags.maxDiffBytes < 10_000 {
 		return dv.New(dv.ExitArguments, "--max-diff-bytes must be at least 10000")
+	}
+	reviewPrompt, err := resolveReviewPrompt(
+		command.InOrStdin(), flags.reviewPrompt, flags.reviewPromptFile,
+		command.Flags().Changed("prompt"), command.Flags().Changed("prompt-file"),
+	)
+	if err != nil {
+		return err
 	}
 	var failBelow *float64
 	if command.Flags().Changed("fail-below") {
@@ -146,7 +155,7 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 		Base: base, CommittedOnly: flags.committedOnly || flags.pr > 0 || flags.publish,
 		StagedOnly: flags.stagedOnly, Excludes: flags.excludes, ConfigPath: flags.configPath,
 		MaxDiffBytes: flags.maxDiffBytes, FailBelow: failBelow, FailOnSeverity: flags.failSeverity,
-		PublicationRequested: flags.publish, Root: repoRoot,
+		PublicationRequested: flags.publish, ReviewPrompt: reviewPrompt, Root: repoRoot,
 	})
 	if err != nil {
 		return err
@@ -180,6 +189,53 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 		return dv.New(dv.ExitGate, "quality gate failed")
 	}
 	return nil
+}
+
+const maxReviewPromptBytes = 256 << 10
+
+func resolveReviewPrompt(reader io.Reader, inline, path string, inlineSet, fileSet bool) (string, error) {
+	if inlineSet && fileSet {
+		return "", dv.New(dv.ExitArguments, "--prompt and --prompt-file are mutually exclusive")
+	}
+	if !inlineSet && !fileSet {
+		return "", nil
+	}
+	if inlineSet {
+		if len([]byte(inline)) > maxReviewPromptBytes {
+			return "", dv.New(dv.ExitArguments, fmt.Sprintf("custom review prompt exceeds %d bytes", maxReviewPromptBytes))
+		}
+		return validateReviewPrompt(inline)
+	}
+
+	var source io.Reader
+	var file *os.File
+	if path == "-" {
+		source = reader
+	} else {
+		var err error
+		file, err = os.Open(expandHome(path))
+		if err != nil {
+			return "", dv.Wrap(dv.ExitArguments, "read custom review prompt", err)
+		}
+		defer file.Close()
+		source = file
+	}
+	raw, err := io.ReadAll(io.LimitReader(source, maxReviewPromptBytes+1))
+	if err != nil {
+		return "", dv.Wrap(dv.ExitArguments, "read custom review prompt", err)
+	}
+	if len(raw) > maxReviewPromptBytes {
+		return "", dv.New(dv.ExitArguments, fmt.Sprintf("custom review prompt exceeds %d bytes", maxReviewPromptBytes))
+	}
+	return validateReviewPrompt(string(raw))
+}
+
+func validateReviewPrompt(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", dv.New(dv.ExitArguments, "custom review prompt cannot be empty")
+	}
+	return value, nil
 }
 
 func writeReviewOutput(command *cobra.Command, result model.ReviewResult, flags *reviewFlags) error {

@@ -13,6 +13,10 @@ Report a finding only when all of the following are true:
 
 Do not report speculative architecture concerns, subjective style preferences, generic best practices, or lint that a formatter would handle. When evidence is incomplete but the risk is plausible and material, place it under **Needs verification** rather than **Findings**.
 
+Do not suggest new features, broad refactors, generalized hardening, or extra
+tests and documentation beyond the selected change's apparent intent unless the
+work is the smallest credible fix for a concrete issue introduced by the diff.
+
 ## Severity
 
 - **Critical**: Likely remote compromise, privilege bypass, irreversible widespread data loss, secret exposure, or a release-blocking failure affecting most users.

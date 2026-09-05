@@ -88,6 +88,32 @@ Repository-specific rules can be committed in `.diffvouch.yml`. DiffVouch reads
 that policy from the trusted base commit so a change cannot suppress its own
 review. A repository cannot select billable API transport or enable publishing.
 
+### Customize the review prompt for one run
+
+Replace DiffVouch's default review guidance inline or from a file:
+
+```bash
+diffvouch review --provider codex \
+  --prompt 'Focus on backward compatibility and database migration safety.'
+
+diffvouch review --provider claude --prompt-file ./review-policy.md
+printf '%s\n' 'Review only authentication and authorization regressions.' | \
+  diffvouch review --provider codex --prompt-file -
+```
+
+`--prompt` and `--prompt-file` are mutually exclusive and apply only to the
+current invocation. They replace the embedded review guidance, while DiffVouch
+always retains its safety, patch-scope, evidence, severity, scoring, and JSON
+output contract. Custom prompts therefore cannot make patch contents trusted or
+remove the structured response requirements. Prompt input is limited to 256 KiB.
+
+For durable project rules, prefer `review.instructions` in `.diffvouch.yml`.
+Those instructions are layered onto the prompt from the trusted comparison
+revision. The embedded default is available at
+[`internal/review/prompts/default.md`](internal/review/prompts/default.md), and
+the research behind it is in
+[`docs/code-review-prompt-research.md`](docs/code-review-prompt-research.md).
+
 ## Publish reviews as your GitHub bot
 
 DiffVouch does not operate a shared bot. Create a private GitHub App owned by

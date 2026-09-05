@@ -224,7 +224,8 @@ With `--base <ref>`, DiffVouch must:
 - Skip binary files while listing them in the summary.
 - Respect `.gitignore` for untracked files.
 - Apply DiffVouch exclusions after Git identifies candidates.
-- Redact common credential patterns before provider submission and warn when redaction occurs.
+- Credential redaction is temporarily disabled because line-level replacement
+  produced false findings. Warn users that reviewable patch text is sent unchanged.
 - Never invoke repository hooks or execute repository code.
 - Exit without contacting a provider when the resulting diff is empty.
 - Report submodule pointer changes without recursively reviewing submodule contents.
@@ -247,7 +248,9 @@ Both providers implement the same internal adapter:
 ProviderAdapter.review(request) -> ReviewResult
 ```
 
-The request contains repository metadata, revision metadata, the sanitized effective patch, changed-file inventory, rubric, repository instructions, and the required output schema.
+The request contains repository metadata, revision metadata, the effective patch,
+changed-file inventory, rubric, repository instructions, and the required output
+schema. Until syntax-preserving redaction is implemented, patch text is sent unchanged.
 
 ### Codex Adapter
 
@@ -491,7 +494,7 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - PR summary plus eligible inline comments.
 - GitHub `COMMENT` review state only.
 - Commit-SHA validation before publication.
-- Secret-pattern redaction and prompt-injection defenses.
+- Prompt-injection defenses and an explicit warning that redaction is disabled.
 - Clear exit codes and actionable errors.
 
 ### Shortly After MVP
@@ -630,7 +633,9 @@ safety checks.
 
 ### Phase 4: Hardening and Release
 
-Complete cross-platform tests, large-diff handling, redaction, prompt-injection defenses, packaging, installation documentation, and strictly local or opt-in telemetry.
+Complete cross-platform tests, large-diff handling, syntax-preserving redaction,
+prompt-injection defenses, packaging, installation documentation, and strictly
+local or opt-in telemetry.
 
 ## 21. Assumptions and Defaults
 

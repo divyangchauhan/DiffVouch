@@ -44,6 +44,14 @@ func TestPromptSeparatesTrustedPolicyFromPatch(t *testing.T) {
 	}
 }
 
+func TestProviderPatchRedactionIsDisabled(t *testing.T) {
+	patch := "+password=visible-to-provider\n+-----BEGIN PRIVATE KEY-----\n"
+	prepared, redactions := prepareProviderPatch(patch)
+	if prepared != patch || redactions != 0 {
+		t.Fatalf("provider patch was altered: redactions=%d patch=%q", redactions, prepared)
+	}
+}
+
 func TestValidateFindingLocationsRejectsUnchangedLines(t *testing.T) {
 	path, side := "main.go", "new"
 	changedLine, unchangedLine := 8, 9

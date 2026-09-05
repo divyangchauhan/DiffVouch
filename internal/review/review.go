@@ -14,7 +14,6 @@ import (
 	"github.com/divyangchauhan/DiffVouch/internal/model"
 	"github.com/divyangchauhan/DiffVouch/internal/provider"
 	"github.com/divyangchauhan/DiffVouch/internal/rating"
-	"github.com/divyangchauhan/DiffVouch/internal/sanitize"
 )
 
 type Options struct {
@@ -80,8 +79,8 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 		files := &model.FilesSummary{Reviewed: collected.ReviewedFiles, Excluded: collected.ExcludedFiles, Binary: collected.BinaryFiles, Omitted: []string{}}
 		return nil, files, nil
 	}
-	redacted, redactions := sanitize.Redact(collected.Patch)
-	chunks, err := gitdiff.ChunkPatch(redacted, repositoryConfig.Review.ChunkBytes)
+	providerPatch, redactions := prepareProviderPatch(collected.Patch)
+	chunks, err := gitdiff.ChunkPatch(providerPatch, repositoryConfig.Review.ChunkBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -144,6 +143,12 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 		Publication: model.Publication{Requested: options.PublicationRequested},
 	}
 	return result, nil, nil
+}
+
+func prepareProviderPatch(patch string) (string, int) {
+	// Redaction is temporarily disabled because altering source lines can create
+	// false review findings. Re-enable only with syntax-preserving redaction.
+	return patch, 0
 }
 
 func validateFindingLocations(findings []model.Finding, reviewedPaths map[string]struct{}, changedLines map[github.DiffLocation]struct{}) ([]model.Finding, []string) {

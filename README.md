@@ -88,6 +88,10 @@ Repository-specific rules can be committed in `.diffvouch.yml`. DiffVouch reads
 that policy from the trusted base commit so a change cannot suppress its own
 review. A repository cannot select billable API transport or enable publishing.
 
+Secret redaction is temporarily disabled because altering source lines produced
+false findings. Review the diff for credentials before running DiffVouch: the
+complete reviewable patch is sent unchanged to the selected AI provider.
+
 ## Publish reviews as your GitHub bot
 
 DiffVouch does not operate a shared bot. Create a private GitHub App owned by

@@ -362,19 +362,49 @@ func githubCommand() *cobra.Command {
 }
 
 func githubCreateCommand() *cobra.Command {
-	var host, owner string
+	var name, host, owner, storage, apiBase, webBase, apiVersion, code string
 	var noBrowser bool
+	var timeout time.Duration
 	command := &cobra.Command{Use: "create", RunE: func(command *cobra.Command, _ []string) error {
-		target := github.CreationURL(host, owner)
-		if !noBrowser {
-			_ = github.OpenBrowser(target)
+		options := github.ManifestCreateOptions{
+			Name: name, Owner: owner, Host: host, Storage: storage,
+			APIBaseURL: apiBase, WebBaseURL: webBase, APIVersion: apiVersion,
+			NoBrowser: noBrowser, Timeout: timeout,
+			OnReady: func(startURL string, browserErr error) {
+				fmt.Fprintf(command.OutOrStdout(), "Creating a private GitHub App with Pull requests: Read and write, no events, and disabled webhooks.\nComplete GitHub's confirmation at:\n  %s\n", startURL)
+				if browserErr != nil && !noBrowser {
+					fmt.Fprintf(command.ErrOrStderr(), "Could not open a browser automatically: %v\n", browserErr)
+				}
+			},
 		}
-		fmt.Fprintf(command.OutOrStdout(), "GitHub App creation page: %s\nConfigure it as private with:\n  Pull requests: Read and write\n  Contents: No access\n  Webhooks: Disabled; subscribe to no events\nInstall it on selected repositories, then run:\n  diffvouch github app configure --app-id ID --slug SLUG --private-key KEY.pem\n", target)
+		var created github.ManifestCreation
+		var err error
+		if code != "" {
+			created, err = github.CreateFromManifestCode(options, code)
+		} else {
+			created, err = github.CreateFromManifest(command.Context(), options)
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(command.OutOrStdout(), "Created and securely configured %s[bot] (App ID %s).\nInstall it on selected repositories:\n  %s\n", created.App.Slug, created.App.AppID, created.InstallURL)
+		if !noBrowser {
+			if err := github.OpenBrowser(created.InstallURL); err != nil {
+				fmt.Fprintf(command.ErrOrStderr(), "Could not open the installation page automatically: %v\n", err)
+			}
+		}
 		return nil
 	}}
+	command.Flags().StringVar(&name, "name", "", "proposed app name (default: randomized DiffVouch name)")
 	command.Flags().StringVar(&host, "host", "github.com", "GitHub hostname")
 	command.Flags().StringVar(&owner, "owner", "", "organization that should own the app")
-	command.Flags().BoolVar(&noBrowser, "no-browser", false, "do not open a browser")
+	command.Flags().StringVar(&storage, "storage", "auto", "secret storage: auto, keyring, or file")
+	command.Flags().StringVar(&apiBase, "api-base-url", "", "REST API base URL")
+	command.Flags().StringVar(&webBase, "web-base-url", "", "web base URL")
+	command.Flags().StringVar(&apiVersion, "api-version", "", "GitHub REST API version")
+	command.Flags().StringVar(&code, "code", "", "exchange a manifest code when localhost redirect was unavailable")
+	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for GitHub confirmation")
+	command.Flags().BoolVar(&noBrowser, "no-browser", false, "print URLs instead of opening a browser")
 	return command
 }
 

@@ -1,16 +1,21 @@
 package github
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"html"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +76,107 @@ func TestRequestFallsBackToDefaultHTTPClient(t *testing.T) {
 	}
 	if !response["ok"] {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestManifestHasMinimumPermissionsAndNoWebhooks(t *testing.T) {
+	manifest := newManifest("diffvouch-test", "http://127.0.0.1:1234/callback")
+	if manifest.Public || manifest.RequestOAuthOnInstall || manifest.HookAttributes.Active {
+		t.Fatalf("manifest enables an unnecessary capability: %#v", manifest)
+	}
+	if len(manifest.DefaultEvents) != 0 || len(manifest.DefaultPermissions) != 1 || manifest.DefaultPermissions["pull_requests"] != "write" {
+		t.Fatalf("manifest permissions are not minimal: %#v", manifest)
+	}
+}
+
+func TestCreateFromManifestCompletesCallbackAndStoresApp(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	key := privateKey(t)
+	var apiServer *httptest.Server
+	apiServer = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/app-manifests/temporary-code/conversions":
+			if request.Method != http.MethodPost || request.Header.Get("Authorization") != "" {
+				t.Errorf("unsafe conversion request: method=%s authorization=%q", request.Method, request.Header.Get("Authorization"))
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"id": 321, "slug": "diffvouch-test", "pem": key})
+		case "/app":
+			if !strings.HasPrefix(request.Header.Get("Authorization"), "Bearer ") {
+				t.Error("app validation did not use a JWT")
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"id": 321, "slug": "diffvouch-test"})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer apiServer.Close()
+
+	created, err := CreateFromManifest(context.Background(), ManifestCreateOptions{
+		Name: "diffvouch-test", Host: "github.example.test", Storage: "file",
+		APIBaseURL: apiServer.URL, WebBaseURL: apiServer.URL, Timeout: 3 * time.Second,
+		NoBrowser: true,
+		OnReady: func(startURL string, browserErr error) {
+			go func() {
+				response, getErr := http.Get(startURL)
+				if getErr != nil {
+					t.Error(getErr)
+					return
+				}
+				raw, readErr := io.ReadAll(response.Body)
+				_ = response.Body.Close()
+				if readErr != nil {
+					t.Error(readErr)
+					return
+				}
+				page := string(raw)
+				actionMatch := regexp.MustCompile(`action="([^"]+)"`).FindStringSubmatch(page)
+				manifestMatch := regexp.MustCompile(`name="manifest" value="([^"]+)"`).FindStringSubmatch(page)
+				if len(actionMatch) != 2 || len(manifestMatch) != 2 {
+					t.Errorf("manifest form is incomplete: %s", page)
+					return
+				}
+				actionURL, parseErr := url.Parse(html.UnescapeString(actionMatch[1]))
+				if parseErr != nil {
+					t.Error(parseErr)
+					return
+				}
+				var manifest manifestDefinition
+				if decodeErr := json.Unmarshal([]byte(html.UnescapeString(manifestMatch[1])), &manifest); decodeErr != nil {
+					t.Error(decodeErr)
+					return
+				}
+				badResponse, badErr := http.Get(manifest.RedirectURL + "?code=temporary-code&state=wrong")
+				if badErr != nil {
+					t.Error(badErr)
+					return
+				}
+				_ = badResponse.Body.Close()
+				if badResponse.StatusCode != http.StatusBadRequest {
+					t.Errorf("invalid state returned %d", badResponse.StatusCode)
+					return
+				}
+				callbackURL := manifest.RedirectURL + "?code=temporary-code&state=" + url.QueryEscape(actionURL.Query().Get("state"))
+				callbackResponse, callbackErr := http.Get(callbackURL)
+				if callbackErr != nil {
+					t.Error(callbackErr)
+					return
+				}
+				_ = callbackResponse.Body.Close()
+				if callbackResponse.StatusCode != http.StatusOK {
+					t.Errorf("callback returned %d", callbackResponse.StatusCode)
+				}
+			}()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.App.AppID != "321" || created.App.Slug != "diffvouch-test" || created.App.PrivateKey.Backend != "file" {
+		t.Fatalf("unexpected created app: %#v", created)
+	}
+	if created.InstallURL != apiServer.URL+"/apps/diffvouch-test/installations/new" {
+		t.Fatalf("unexpected installation URL: %s", created.InstallURL)
 	}
 }
 

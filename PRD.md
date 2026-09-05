@@ -409,17 +409,26 @@ are unnecessary because reviews use the local checkout and run only on demand.
 
 DiffVouch must:
 
-1. Store the App ID, slug, hostname, API/web base URLs, and private key locally.
+1. Create the private app through GitHub's App Manifest flow. The CLI starts a
+   temporary loopback callback, submits a manifest with only pull-request write
+   permission, no events, inactive webhooks, and no OAuth-on-install request,
+   verifies an unguessable state value, and exchanges the one-time code within
+   the allowed lifetime. The user only confirms the app name and ownership on
+   GitHub; they do not manually configure permissions or download a PEM.
+2. Offer `--no-browser` for headless use and `--code` as a copy/paste fallback
+   when the localhost redirect cannot complete. Keep manual configuration for
+   existing apps, not as the primary creation path.
+3. Store the App ID, slug, hostname, API/web base URLs, and generated private key locally.
    Prefer the OS credential manager and allow a mode-0600 user file only as fallback.
-2. Sign a short-lived RS256 JWT with an issued-at adjustment for clock drift.
-3. Locate the repository installation with `GET /repos/{owner}/{repo}/installation`.
-4. Exchange the JWT for an installation token restricted to the current repository
+4. Sign a short-lived RS256 JWT with an issued-at adjustment for clock drift.
+5. Locate the repository installation with `GET /repos/{owner}/{repo}/installation`.
+6. Exchange the JWT for an installation token restricted to the current repository
    and `pull_requests: write`.
-5. Keep installation tokens only in memory and never log credentials or tokens.
-6. Read the current Git remote and resolve hostname, owner, and repository.
-7. Find exactly one open PR matching the local branch and head SHA, including fork PRs,
+7. Keep installation tokens only in memory and never log credentials or tokens.
+8. Read the current Git remote and resolve hostname, owner, and repository.
+9. Find exactly one open PR matching the local branch and head SHA, including fork PRs,
    or honor explicit `--repo` and `--pr` overrides.
-8. Revalidate the reviewed base and head SHAs immediately before publication.
+10. Revalidate the reviewed base and head SHAs immediately before publication.
 
 Private apps can only be installed on the account that owns them, so organization
 repositories normally require an app created under that organization. GitHub
@@ -614,9 +623,10 @@ strict output validation, timeouts, and cancellation.
 
 ### Phase 3: GitHub Publication
 
-Add private GitHub App configuration, secure key storage, RS256 and installation-token
-authentication, repository and PR discovery, line mapping, summary generation,
-inline comments, and base/head SHA safety checks.
+Add manifest-based private GitHub App creation, manual existing-app configuration,
+secure key storage, RS256 and installation-token authentication, repository and PR
+discovery, line mapping, summary generation, inline comments, and base/head SHA
+safety checks.
 
 ### Phase 4: Hardening and Release
 

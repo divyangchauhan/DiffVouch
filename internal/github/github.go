@@ -7,13 +7,17 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +26,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/divyangchauhan/DiffVouch/internal/config"
@@ -60,6 +65,10 @@ func DefaultURLs(host string) (api, web, version string) {
 
 func CreationURL(host, owner string) string {
 	_, web, _ := DefaultURLs(host)
+	return creationURL(web, owner)
+}
+
+func creationURL(web, owner string) string {
 	if owner != "" {
 		return web + "/organizations/" + url.PathEscape(owner) + "/settings/apps/new"
 	}
@@ -76,19 +85,27 @@ func OpenBrowser(target string) error {
 	default:
 		command = exec.Command("xdg-open", target)
 	}
-	return command.Start()
+	if err := command.Start(); err != nil {
+		return err
+	}
+	go func() { _ = command.Wait() }()
+	return nil
 }
 
 func Configure(appID, slug, keyPath, host, storage, apiBase, webBase, apiVersion string) (config.GitHubApp, error) {
+	privateKeyRaw, err := os.ReadFile(keyPath)
+	if err != nil {
+		return config.GitHubApp{}, dv.Wrap(dv.ExitArguments, "read GitHub App private key", err)
+	}
+	return configurePrivateKey(appID, slug, privateKeyRaw, host, storage, apiBase, webBase, apiVersion)
+}
+
+func configurePrivateKey(appID, slug string, privateKeyRaw []byte, host, storage, apiBase, webBase, apiVersion string) (config.GitHubApp, error) {
 	if !regexp.MustCompile(`^[0-9]+$`).MatchString(appID) {
 		return config.GitHubApp{}, dv.New(dv.ExitArguments, "GitHub App ID must be numeric")
 	}
 	if !regexp.MustCompile(`^[a-z0-9-]+$`).MatchString(slug) {
 		return config.GitHubApp{}, dv.New(dv.ExitArguments, "GitHub App slug must contain lowercase letters, digits, and hyphens")
-	}
-	privateKeyRaw, err := os.ReadFile(keyPath)
-	if err != nil {
-		return config.GitHubApp{}, dv.Wrap(dv.ExitArguments, "read GitHub App private key", err)
 	}
 	defaultAPI, defaultWeb, defaultVersion := DefaultURLs(host)
 	if apiBase == "" {
@@ -137,6 +154,213 @@ func Configure(appID, slug, keyPath, host, storage, apiBase, webBase, apiVersion
 	return provisional, nil
 }
 
+type ManifestCreateOptions struct {
+	Name, Owner, Host, Storage, APIBaseURL, WebBaseURL, APIVersion string
+	NoBrowser                                                      bool
+	Timeout                                                        time.Duration
+	OnReady                                                        func(string, error)
+}
+
+type ManifestCreation struct {
+	App        config.GitHubApp
+	InstallURL string
+}
+
+type manifestDefinition struct {
+	Name                  string            `json:"name"`
+	URL                   string            `json:"url"`
+	Description           string            `json:"description"`
+	RedirectURL           string            `json:"redirect_url"`
+	Public                bool              `json:"public"`
+	DefaultPermissions    map[string]string `json:"default_permissions"`
+	DefaultEvents         []string          `json:"default_events"`
+	RequestOAuthOnInstall bool              `json:"request_oauth_on_install"`
+	HookAttributes        struct {
+		URL    string `json:"url"`
+		Active bool   `json:"active"`
+	} `json:"hook_attributes"`
+}
+
+type manifestCallback struct {
+	code string
+}
+
+var manifestPage = template.Must(template.New("manifest").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Create DiffVouch GitHub App</title></head>
+<body><p>Redirecting to GitHub to create your private DiffVouch app…</p>
+<form id="manifest" action="{{.Action}}" method="post">
+<input type="hidden" name="manifest" value="{{.Manifest}}">
+<button type="submit">Continue to GitHub</button>
+</form><script>document.getElementById('manifest').submit()</script></body></html>`))
+
+func CreateFromManifest(ctx context.Context, options ManifestCreateOptions) (ManifestCreation, error) {
+	if options.Host == "" {
+		options.Host = "github.com"
+	}
+	defaultAPI, defaultWeb, defaultVersion := DefaultURLs(options.Host)
+	if options.APIBaseURL == "" {
+		options.APIBaseURL = defaultAPI
+	}
+	if options.WebBaseURL == "" {
+		options.WebBaseURL = defaultWeb
+	}
+	if options.APIVersion == "" {
+		options.APIVersion = defaultVersion
+	}
+	if options.Timeout <= 0 {
+		options.Timeout = 10 * time.Minute
+	}
+	if options.Name == "" {
+		suffix, err := randomHex(4)
+		if err != nil {
+			return ManifestCreation{}, dv.Wrap(dv.ExitGitHub, "generate GitHub App name", err)
+		}
+		options.Name = "diffvouch-" + suffix
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return ManifestCreation{}, dv.Wrap(dv.ExitGitHub, "start local GitHub App callback", err)
+	}
+	callbackURL := "http://" + listener.Addr().String() + "/callback"
+	state, err := randomHex(32)
+	if err != nil {
+		_ = listener.Close()
+		return ManifestCreation{}, dv.Wrap(dv.ExitGitHub, "generate manifest state", err)
+	}
+	manifest := newManifest(options.Name, callbackURL)
+	manifestRaw, err := json.Marshal(manifest)
+	if err != nil {
+		_ = listener.Close()
+		return ManifestCreation{}, err
+	}
+	action := creationURL(strings.TrimRight(options.WebBaseURL, "/"), options.Owner) + "?state=" + url.QueryEscape(state)
+	callback := make(chan manifestCallback, 1)
+	var callbackUsed atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/start", func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = manifestPage.Execute(writer, map[string]string{"Action": action, "Manifest": string(manifestRaw)})
+	})
+	mux.HandleFunc("/callback", func(writer http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		returnedState, code := query.Get("state"), query.Get("code")
+		if subtle.ConstantTimeCompare([]byte(returnedState), []byte(state)) != 1 || code == "" {
+			http.Error(writer, "Invalid or expired DiffVouch manifest callback.", http.StatusBadRequest)
+			return
+		}
+		if !callbackUsed.CompareAndSwap(false, true) {
+			http.Error(writer, "This manifest callback was already used.", http.StatusConflict)
+			return
+		}
+		select {
+		case callback <- manifestCallback{code: code}:
+			writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(writer, "<!doctype html><title>DiffVouch confirmation received</title><p>GitHub confirmation received. You can close this tab and return to DiffVouch.</p>")
+		default:
+			http.Error(writer, "This manifest callback was already used.", http.StatusConflict)
+		}
+	})
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() { _ = server.Serve(listener) }()
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownContext)
+	}()
+	startURL := "http://" + listener.Addr().String() + "/start"
+	var browserErr error
+	if !options.NoBrowser {
+		browserErr = OpenBrowser(startURL)
+	}
+	if options.OnReady != nil {
+		options.OnReady(startURL, browserErr)
+	}
+	waitContext, cancel := context.WithTimeout(ctx, options.Timeout)
+	defer cancel()
+	var received manifestCallback
+	select {
+	case received = <-callback:
+	case <-waitContext.Done():
+		return ManifestCreation{}, dv.Wrap(dv.ExitGitHub, "GitHub App creation did not complete", waitContext.Err())
+	}
+	return createFromManifestCode(options, received.code)
+}
+
+func CreateFromManifestCode(options ManifestCreateOptions, code string) (ManifestCreation, error) {
+	if options.Host == "" {
+		options.Host = "github.com"
+	}
+	defaultAPI, defaultWeb, defaultVersion := DefaultURLs(options.Host)
+	if options.APIBaseURL == "" {
+		options.APIBaseURL = defaultAPI
+	}
+	if options.WebBaseURL == "" {
+		options.WebBaseURL = defaultWeb
+	}
+	if options.APIVersion == "" {
+		options.APIVersion = defaultVersion
+	}
+	return createFromManifestCode(options, code)
+}
+
+func createFromManifestCode(options ManifestCreateOptions, code string) (ManifestCreation, error) {
+	if strings.TrimSpace(code) == "" {
+		return ManifestCreation{}, dv.New(dv.ExitArguments, "manifest conversion code cannot be empty")
+	}
+	conversion, err := exchangeManifest(options.APIBaseURL, options.APIVersion, strings.TrimSpace(code))
+	if err != nil {
+		return ManifestCreation{}, err
+	}
+	app, err := configurePrivateKey(strconv.FormatInt(conversion.ID, 10), conversion.Slug, []byte(conversion.PEM), options.Host, options.Storage, options.APIBaseURL, options.WebBaseURL, options.APIVersion)
+	if err != nil {
+		return ManifestCreation{}, err
+	}
+	return ManifestCreation{App: app, InstallURL: strings.TrimRight(app.WebBaseURL, "/") + "/apps/" + url.PathEscape(app.Slug) + "/installations/new"}, nil
+}
+
+func newManifest(name, callbackURL string) manifestDefinition {
+	manifest := manifestDefinition{
+		Name: name, URL: "https://github.com/divyangchauhan/DiffVouch",
+		Description: "Local-first pull request reviews from DiffVouch",
+		RedirectURL: callbackURL, Public: false,
+		DefaultPermissions: map[string]string{"pull_requests": "write"}, DefaultEvents: []string{},
+		RequestOAuthOnInstall: false,
+	}
+	manifest.HookAttributes.URL = "https://github.com/divyangchauhan/DiffVouch"
+	manifest.HookAttributes.Active = false
+	return manifest
+}
+
+func randomHex(bytes int) (string, error) {
+	raw := make([]byte, bytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+type manifestConversion struct {
+	ID   int64  `json:"id"`
+	Slug string `json:"slug"`
+	PEM  string `json:"pem"`
+}
+
+func exchangeManifest(apiBase, apiVersion, code string) (manifestConversion, error) {
+	client := &Client{Config: config.GitHubApp{APIBaseURL: strings.TrimRight(apiBase, "/"), APIVersion: apiVersion}, HTTP: &http.Client{Timeout: 60 * time.Second}}
+	var conversion manifestConversion
+	if err := client.request(http.MethodPost, "/app-manifests/"+url.PathEscape(code)+"/conversions", "", nil, &conversion, "application/vnd.github+json"); err != nil {
+		return conversion, err
+	}
+	if conversion.ID <= 0 || conversion.Slug == "" || conversion.PEM == "" {
+		return conversion, dv.New(dv.ExitGitHub, "GitHub returned an incomplete App manifest conversion")
+	}
+	return conversion, nil
+}
+
 func LoadApp(host string) (config.GitHubApp, error) {
 	global, err := config.LoadGlobal()
 	if err != nil {
@@ -144,7 +368,7 @@ func LoadApp(host string) (config.GitHubApp, error) {
 	}
 	app, ok := global.GitHubApps[host]
 	if !ok {
-		return app, dv.New(dv.ExitGitHub, "no GitHub App configured for "+host+"; run 'diffvouch github app configure'")
+		return app, dv.New(dv.ExitGitHub, "no GitHub App configured for "+host+"; run 'diffvouch github app create'")
 	}
 	return app, nil
 }
@@ -261,7 +485,9 @@ func (c *Client) request(method, path, token string, body any, target any, accep
 		return dv.Wrap(dv.ExitGitHub, "create GitHub request", err)
 	}
 	request.Header.Set("Accept", accept)
-	request.Header.Set("Authorization", "Bearer "+token)
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	request.Header.Set("User-Agent", "DiffVouch/0.1")
 	request.Header.Set("Content-Type", "application/json")
 	if c.Config.APIVersion != "" {

@@ -95,26 +95,32 @@ you or by the organization that owns the repositories it will review:
 
 ```bash
 diffvouch github app create
+# For an organization-owned app:
+diffvouch github app create --owner your-organization
 ```
 
-Configure the app with:
+The command starts a temporary localhost callback and uses GitHub's App Manifest
+flow. It opens a preconfigured GitHub confirmation page with only:
 
 - Pull requests: Read and write
 - Contents: No access
 - Webhooks: Disabled
 - Subscribed events: None
 
-Install it on selected repositories, download a private-key PEM, then configure
-and validate it locally:
+After you confirm the generated name, DiffVouch exchanges the one-time manifest
+code, validates the generated credentials, stores the private key securely, and
+opens the repository installation page. You do not download a PEM or enter an
+App ID. Then verify access:
 
 ```bash
-diffvouch github app configure \
-  --app-id 123456 \
-  --slug my-diffvouch \
-  --private-key ~/Downloads/my-diffvouch.pem
-
 diffvouch github app status --repo owner/repository
 ```
+
+On a headless machine, pass `--no-browser` and open the printed localhost URL
+through a forwarded port. If GitHub cannot reach the localhost callback, copy
+the `code` query parameter from the failed redirect and finish with
+`diffvouch github app create --code CODE`. The manual `github app configure`
+command remains available for an existing app.
 
 Review and publish a checked-out pull request:
 
@@ -134,7 +140,7 @@ base and head, and posts exactly one `COMMENT` review with eligible inline
 comments. It never approves or requests changes.
 
 GitHub Enterprise Server is supported through `--host`, `--api-base-url`,
-`--web-base-url`, and `--github-host`.
+`--web-base-url`, and `--github-host` where its version supports App manifests.
 
 ## Install the Agent Skill
 

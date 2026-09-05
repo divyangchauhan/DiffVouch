@@ -117,7 +117,7 @@ diffvouch github app status --repo owner/repository
 ```
 
 On a headless machine, pass `--no-browser` and open the printed localhost URL
-through a forwarded port. If GitHub cannot reach the localhost callback, copy
+through a forwarded port. If the browser cannot reach the localhost callback, copy
 the `code` query parameter from the failed redirect and finish with
 `diffvouch github app create --code CODE`. The manual `github app configure`
 command remains available for an existing app.

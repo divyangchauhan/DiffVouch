@@ -121,6 +121,16 @@ Provider controls:
 --effort <level>          Optional provider reasoning-effort override
 ```
 
+One-run review guidance:
+
+```text
+--prompt <text>           Replace the default review guidance for this invocation
+--prompt-file <path|->    Read replacement guidance from a file or stdin
+```
+
+The two prompt flags are mutually exclusive. Runtime guidance cannot remove the
+invariant safety, patch-scope, evidence, scoring, or structured-output contract.
+
 Output and publishing:
 
 ```text
@@ -492,6 +502,7 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - GitHub `COMMENT` review state only.
 - Commit-SHA validation before publication.
 - Secret-pattern redaction and prompt-injection defenses.
+- Runtime custom review guidance from inline text, a file, or stdin.
 - Clear exit codes and actionable errors.
 
 ### Shortly After MVP
@@ -500,7 +511,6 @@ A GitHub publication failure uses exit code 5 even if the local review succeeded
 - Review only selected paths.
 - Compare an explicit commit range.
 - Global user configuration.
-- Custom prompt files.
 - Suppression of findings by ID.
 - Review history stored locally.
 - Cost, token, and elapsed-time estimates.

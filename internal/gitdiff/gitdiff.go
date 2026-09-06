@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/divyangchauhan/DiffVouch/internal/dv"
@@ -194,7 +195,7 @@ func Collect(options Options) (Collected, error) {
 			return Collected{}, dv.New(dv.ExitCoverage, "could not resolve a changed path from the Git patch")
 		}
 		if !utf8.ValidString(section) || isBinarySection(section) {
-			result.BinaryFiles = append(result.BinaryFiles, printablePath(path))
+			result.BinaryFiles = append(result.BinaryFiles, path)
 			continue
 		}
 		if matchesAny(path, options.Excludes) {
@@ -242,7 +243,7 @@ func collectUntracked(repo string, limit int) (string, []string, error) {
 			return "", nil, dv.Wrap(dv.ExitGit, "inspect untracked file", statErr)
 		}
 		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
-			binary = append(binary, printablePath(relative))
+			binary = append(binary, relative)
 			continue
 		}
 		if info.Mode().IsRegular() {
@@ -254,7 +255,7 @@ func collectUntracked(repo string, limit int) (string, []string, error) {
 			count, _ := file.Read(probe)
 			_ = file.Close()
 			if bytes.IndexByte(probe[:count], 0) >= 0 {
-				binary = append(binary, printablePath(relative))
+				binary = append(binary, relative)
 				continue
 			}
 		}
@@ -351,11 +352,18 @@ func matchesAny(path string, patterns []string) bool {
 	return false
 }
 
-func printablePath(path string) string {
-	if utf8.ValidString(path) {
+func DisplayPath(path string) string {
+	unsafe := !utf8.ValidString(path)
+	for _, character := range path {
+		if character == '`' || unicode.IsControl(character) || unicode.In(character, unicode.Cf) {
+			unsafe = true
+			break
+		}
+	}
+	if !unsafe {
 		return path
 	}
-	return strconv.QuoteToASCII(path)
+	return strings.ReplaceAll(strconv.QuoteToASCII(path), "`", `\u0060`)
 }
 
 func uniqueSorted(values []string) []string {

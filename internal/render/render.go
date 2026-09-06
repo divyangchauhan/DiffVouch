@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/divyangchauhan/DiffVouch/internal/gitdiff"
 	"github.com/divyangchauhan/DiffVouch/internal/model"
 )
 
@@ -51,10 +52,10 @@ func Terminal(result model.ReviewResult) string {
 		fmt.Fprintf(&output, "%d potential secret(s) were redacted before provider submission.\n", result.Files.Redactions)
 	}
 	if len(result.Files.Binary) > 0 {
-		fmt.Fprintf(&output, "Skipped binary or non-UTF-8 files: %s\n", strings.Join(result.Files.Binary, ", "))
+		fmt.Fprintf(&output, "Skipped binary or non-UTF-8 files: %s\n", strings.Join(displayPaths(result.Files.Binary), ", "))
 	}
 	if len(result.Files.Excluded) > 0 {
-		fmt.Fprintf(&output, "Excluded files: %s\n", strings.Join(result.Files.Excluded, ", "))
+		fmt.Fprintf(&output, "Excluded files: %s\n", strings.Join(displayPaths(result.Files.Excluded), ", "))
 	}
 	if !result.Gate.Passed {
 		fmt.Fprintf(&output, "Quality gate failed: %s\n", strings.Join(result.Gate.Reasons, "; "))
@@ -88,7 +89,7 @@ func writeFindings(output *strings.Builder, heading string, findings []model.Fin
 	for _, finding := range findings {
 		location := ""
 		if finding.Path != nil {
-			location = " " + *finding.Path
+			location = " " + gitdiff.DisplayPath(*finding.Path)
 			if finding.Line != nil {
 				location += fmt.Sprintf(":%d", *finding.Line)
 			}
@@ -96,6 +97,14 @@ func writeFindings(output *strings.Builder, heading string, findings []model.Fin
 		fmt.Fprintf(output, "  %s [%s] %s%s\n    %s\n    Recommendation: %s\n", finding.ID, finding.Severity, finding.Title, location, finding.Explanation, finding.Recommendation)
 	}
 	output.WriteString("\n")
+}
+
+func displayPaths(paths []string) []string {
+	display := make([]string, len(paths))
+	for index, path := range paths {
+		display[index] = gitdiff.DisplayPath(path)
+	}
+	return display
 }
 
 func pointer(value *string) string {

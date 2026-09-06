@@ -23,3 +23,12 @@ func TestTerminalIncludesCoverageAndPublicationState(t *testing.T) {
 		}
 	}
 }
+
+func TestTerminalEscapesFindingPathControls(t *testing.T) {
+	path := "forged\n\x1b[31m.go"
+	result := model.ReviewResult{Findings: []model.Finding{{ID: "DV-001", Severity: model.Medium, Path: &path}}}
+	output := Terminal(result)
+	if strings.Contains(output, "forged\n") || strings.Contains(output, "\x1b") || !strings.Contains(output, `forged\n\x1b`) {
+		t.Fatalf("unsafe path reached terminal output: %q", output)
+	}
+}

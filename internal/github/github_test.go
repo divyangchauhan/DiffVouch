@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/divyangchauhan/DiffVouch/internal/config"
+	"github.com/divyangchauhan/DiffVouch/internal/model"
 )
 
 func privateKey(t *testing.T) string {
@@ -60,6 +61,25 @@ func TestChangedLinesIncludesDeletedSide(t *testing.T) {
 	diff := "diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n@@ -2 +0,0 @@\n-removed\n"
 	if _, ok := ChangedLines(diff)[DiffLocation{"gone.txt", "LEFT", 2}]; !ok {
 		t.Fatal("deleted line is not eligible")
+	}
+}
+
+func TestValidatePullForReviewRejectsChangedHead(t *testing.T) {
+	result := &model.ReviewResult{Scope: model.Scope{BaseSHA: "base", HeadSHA: "reviewed"}}
+	pull := Pull{State: "open"}
+	pull.Base.SHA = "base"
+	pull.Head.SHA = "new-head"
+	if err := validatePullForReview(pull, result); err == nil || !strings.Contains(err.Error(), "head changed") {
+		t.Fatalf("changed head was accepted: %v", err)
+	}
+}
+
+func TestReviewBodyEscapesFilenameControls(t *testing.T) {
+	path := "forged\n\x1b[31m`file.go"
+	result := model.ReviewResult{Findings: []model.Finding{{Severity: model.Medium, Title: "Finding", Path: &path}}}
+	body := ReviewBody(result)
+	if strings.Contains(body, "forged\n") || strings.Contains(body, "\x1b") || strings.Contains(body, "`file.go") || !strings.Contains(body, `forged\n\x1b`) {
+		t.Fatalf("unsafe path reached review Markdown: %q", body)
 	}
 }
 

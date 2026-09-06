@@ -121,6 +121,16 @@ func TestChunkPatchPreservesSections(t *testing.T) {
 	}
 }
 
+func TestDisplayPathEscapesTerminalAndMarkdownControls(t *testing.T) {
+	if got := DisplayPath("src/main.go"); got != "src/main.go" {
+		t.Fatalf("safe path changed: %q", got)
+	}
+	got := DisplayPath("bad\n\x1b[31m`name")
+	if strings.ContainsAny(got, "\n\x1b`") || !strings.Contains(got, `\n`) || !strings.Contains(got, `\u0060`) {
+		t.Fatalf("unsafe path was not escaped: %q", got)
+	}
+}
+
 func TestUnbornRepositoryReviewsTrackedAndUntrackedFiles(t *testing.T) {
 	repo := t.TempDir()
 	command := exec.Command("git", "init", "-q", "--initial-branch=main")

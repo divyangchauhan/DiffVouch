@@ -3,6 +3,7 @@ package review
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"sort"
 	"strings"
@@ -31,6 +32,7 @@ type Options struct {
 	FailOnSeverity       string
 	PublicationRequested bool
 	Root                 string
+	Diagnostics          io.Writer
 }
 
 func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) {
@@ -49,6 +51,20 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 	repositoryConfig, err := config.LoadRepository(repo, options.ConfigPath, trustedRef)
 	if err != nil {
 		return nil, nil, dv.Wrap(dv.ExitArguments, "load repository configuration", err)
+	}
+	failBelow := options.FailBelow
+	if failBelow == nil {
+		failBelow = repositoryConfig.QualityGate.FailBelow
+	}
+	if failBelow != nil && (*failBelow < 1 || *failBelow > 5) {
+		return nil, nil, dv.New(dv.ExitArguments, "fail-below must be between 1 and 5")
+	}
+	failSeverity := options.FailOnSeverity
+	if failSeverity == "" {
+		failSeverity = repositoryConfig.QualityGate.FailOnSeverity
+	}
+	if failSeverity != "" && !rating.ValidSeverity(failSeverity) {
+		return nil, nil, dv.New(dv.ExitArguments, "invalid fail-on severity")
 	}
 	transport := options.Transport
 	if transport == "" {
@@ -88,6 +104,7 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 	if err != nil {
 		return nil, nil, err
 	}
+	warnUnredacted(options.Diagnostics)
 	reviews := make([]model.ProviderReview, 0, len(chunks))
 	sizes := make([]int, 0, len(chunks))
 	for index, chunk := range chunks {
@@ -117,17 +134,6 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 		combined.NeedsVerification = []string{}
 	}
 	calculatedRating := rating.Calculate(combined, repositoryConfig.Review.Rubric)
-	failBelow := options.FailBelow
-	if failBelow == nil {
-		failBelow = repositoryConfig.QualityGate.FailBelow
-	}
-	failSeverity := options.FailOnSeverity
-	if failSeverity == "" {
-		failSeverity = repositoryConfig.QualityGate.FailOnSeverity
-	}
-	if failSeverity != "" && !rating.ValidSeverity(failSeverity) {
-		return nil, nil, dv.New(dv.ExitArguments, "invalid fail-on severity")
-	}
 	var effort *string
 	if options.Effort != "" {
 		effort = &options.Effort
@@ -151,6 +157,12 @@ func prepareProviderPatch(patch string) (string, int) {
 	return patch, 0
 }
 
+func warnUnredacted(output io.Writer) {
+	if output != nil {
+		_, _ = fmt.Fprintln(output, "WARNING: DiffVouch redaction is disabled; the complete patch will be sent unchanged to the configured AI provider.")
+	}
+}
+
 func validateFindingLocations(findings []model.Finding, reviewedPaths map[string]struct{}, changedLines map[github.DiffLocation]struct{}) ([]model.Finding, []string) {
 	accepted := make([]model.Finding, 0, len(findings))
 	var needsVerification []string
@@ -167,7 +179,7 @@ func validateFindingLocations(findings []model.Finding, reviewedPaths map[string
 				side = "LEFT"
 			}
 			if _, ok := changedLines[github.DiffLocation{Path: *finding.Path, Side: side, Line: *finding.Line}]; !ok {
-				needsVerification = append(needsVerification, fmt.Sprintf("Provider cited %s:%d on an unchanged or unavailable line.", *finding.Path, *finding.Line))
+				needsVerification = append(needsVerification, fmt.Sprintf("Provider cited %s:%d on an unchanged or unavailable line.", gitdiff.DisplayPath(*finding.Path), *finding.Line))
 				continue
 			}
 		}

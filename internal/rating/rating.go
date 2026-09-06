@@ -30,7 +30,7 @@ func Calculate(review model.ProviderReview, weights map[string]int) model.Rating
 	switch {
 	case overall < 1.5:
 		label = "Critical risk"
-	case overall < 2:
+	case overall < 2.5:
 		label = "High risk"
 	case overall < 3.5:
 		label = "Needs work"

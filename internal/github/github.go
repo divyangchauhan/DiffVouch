@@ -718,14 +718,8 @@ func Publish(result *model.ReviewResult, repo, explicitRepo, explicitHost string
 	if err != nil {
 		return "", "", err
 	}
-	if pull.State != "open" {
-		return "", "", dv.New(dv.ExitGitHub, "pull request is not open")
-	}
-	if pull.Head.SHA != result.Scope.HeadSHA {
-		return "", "", dv.New(dv.ExitGitHub, "PR head changed after review; run a fresh review")
-	}
-	if pull.Base.SHA != result.Scope.BaseSHA {
-		return "", "", dv.New(dv.ExitGitHub, "PR base changed after review; run a fresh review")
+	if err := validatePullForReview(pull, result); err != nil {
+		return "", "", err
 	}
 	var diffRaw []byte
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(name), pull.Number)
@@ -752,6 +746,13 @@ func Publish(result *model.ReviewResult, repo, explicitRepo, explicitHost string
 		comments = append(comments, map[string]any{"path": *finding.Path, "line": *finding.Line, "side": side, "body": body})
 	}
 	body := map[string]any{"commit_id": result.Scope.HeadSHA, "event": "COMMENT", "body": ReviewBody(*result), "comments": comments}
+	currentPull, err := discoverPull(client, token, repo, owner, name, pull.Number)
+	if err != nil {
+		return "", "", err
+	}
+	if err := validatePullForReview(currentPull, result); err != nil {
+		return "", "", err
+	}
 	var response struct {
 		HTMLURL string `json:"html_url"`
 	}
@@ -762,6 +763,19 @@ func Publish(result *model.ReviewResult, repo, explicitRepo, explicitHost string
 		return "", "", dv.New(dv.ExitGitHub, "GitHub created the review but returned no URL")
 	}
 	return response.HTMLURL, app.Slug + "[bot]", nil
+}
+
+func validatePullForReview(pull Pull, result *model.ReviewResult) error {
+	if pull.State != "open" {
+		return dv.New(dv.ExitGitHub, "pull request is not open")
+	}
+	if pull.Head.SHA != result.Scope.HeadSHA {
+		return dv.New(dv.ExitGitHub, "PR head changed after review; run a fresh review")
+	}
+	if pull.Base.SHA != result.Scope.BaseSHA {
+		return dv.New(dv.ExitGitHub, "PR base changed after review; run a fresh review")
+	}
+	return nil
 }
 
 func ReviewBody(result model.ReviewResult) string {
@@ -780,7 +794,7 @@ func ReviewBody(result model.ReviewResult) string {
 			count++
 			locationText := ""
 			if finding.Path != nil {
-				locationText = " `" + *finding.Path
+				locationText = " `" + gitdiff.DisplayPath(*finding.Path)
 				if finding.Line != nil {
 					locationText += fmt.Sprintf(":%d", *finding.Line)
 				}

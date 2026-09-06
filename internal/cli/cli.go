@@ -146,7 +146,7 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 		Base: base, CommittedOnly: flags.committedOnly || flags.pr > 0 || flags.publish,
 		StagedOnly: flags.stagedOnly, Excludes: flags.excludes, ConfigPath: flags.configPath,
 		MaxDiffBytes: flags.maxDiffBytes, FailBelow: failBelow, FailOnSeverity: flags.failSeverity,
-		PublicationRequested: flags.publish, Root: repoRoot,
+		PublicationRequested: flags.publish, Root: repoRoot, Diagnostics: command.ErrOrStderr(),
 	})
 	if err != nil {
 		return err
@@ -155,10 +155,10 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 		if skipped != nil && (len(skipped.Binary) > 0 || len(skipped.Excluded) > 0) {
 			_, _ = fmt.Fprintln(command.OutOrStdout(), "No reviewable text changes.")
 			if len(skipped.Binary) > 0 {
-				_, _ = fmt.Fprintf(command.OutOrStdout(), "Skipped binary or non-UTF-8 files: %s\n", strings.Join(skipped.Binary, ", "))
+				_, _ = fmt.Fprintf(command.OutOrStdout(), "Skipped binary or non-UTF-8 files: %s\n", strings.Join(displayPaths(skipped.Binary), ", "))
 			}
 			if len(skipped.Excluded) > 0 {
-				_, _ = fmt.Fprintf(command.OutOrStdout(), "Excluded files: %s\n", strings.Join(skipped.Excluded, ", "))
+				_, _ = fmt.Fprintf(command.OutOrStdout(), "Excluded files: %s\n", strings.Join(displayPaths(skipped.Excluded), ", "))
 			}
 		} else {
 			_, _ = fmt.Fprintln(command.OutOrStdout(), "No reviewable changes.")
@@ -502,6 +502,13 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+func displayPaths(paths []string) []string {
+	display := make([]string, len(paths))
+	for index, path := range paths {
+		display[index] = gitdiff.DisplayPath(path)
+	}
+	return display
 }
 func ternary(condition bool, yes, no string) string {
 	if condition {

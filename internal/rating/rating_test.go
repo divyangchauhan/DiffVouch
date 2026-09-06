@@ -30,3 +30,18 @@ func TestCriticalRatingLabel(t *testing.T) {
 		t.Fatalf("unexpected critical rating: %#v", result)
 	}
 }
+
+func TestRatingLabelBoundaries(t *testing.T) {
+	weights := map[string]int{"correctness": 35, "security": 20, "maintainability": 20, "testing": 15, "scope": 10}
+	tests := []struct {
+		score float64
+		label string
+	}{{1.4, "Critical risk"}, {1.5, "High risk"}, {2.4, "High risk"}, {2.5, "Needs work"}, {3.4, "Needs work"}, {3.5, "Good"}}
+	for _, test := range tests {
+		dimensions := model.Dimensions{Correctness: test.score, Security: test.score, Maintainability: test.score, Testing: test.score, Scope: test.score}
+		result := Calculate(model.ProviderReview{Dimensions: dimensions}, weights)
+		if result.Label != test.label {
+			t.Errorf("score %.1f: got %q, want %q", test.score, result.Label, test.label)
+		}
+	}
+}

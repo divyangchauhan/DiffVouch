@@ -1,6 +1,7 @@
 package review
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -49,6 +50,29 @@ func TestProviderPatchRedactionIsDisabled(t *testing.T) {
 	prepared, redactions := prepareProviderPatch(patch)
 	if prepared != patch || redactions != 0 {
 		t.Fatalf("provider patch was altered: redactions=%d patch=%q", redactions, prepared)
+	}
+}
+
+func TestUnredactedWarningUsesDiagnosticsWriter(t *testing.T) {
+	var diagnostics bytes.Buffer
+	warnUnredacted(&diagnostics)
+	if !stringContains(diagnostics.String(), "WARNING") || !stringContains(diagnostics.String(), "complete patch") {
+		t.Fatalf("missing unredacted-patch warning: %q", diagnostics.String())
+	}
+}
+
+func TestInvalidGateSeverityFailsBeforeDiffCollection(t *testing.T) {
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", "--initial-branch=main"}, {"config", "user.name", "Test"}, {"config", "user.email", "test@example.invalid"}, {"commit", "--allow-empty", "-q", "-m", "initial"}} {
+		command := exec.Command("git", args...)
+		command.Dir = repo
+		if err := command.Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, skipped, err := Perform(Options{Root: repo, ProviderName: "codex", FailOnSeverity: "severe"})
+	if err == nil || result != nil || skipped != nil || !stringContains(err.Error(), "invalid fail-on severity") {
+		t.Fatalf("invalid gate was not rejected early: result=%#v skipped=%#v err=%v", result, skipped, err)
 	}
 }
 

@@ -121,6 +121,27 @@ func TestChunkPatchPreservesSections(t *testing.T) {
 	}
 }
 
+func TestChunkPatchIgnoresHunkMarkerTextInFilename(t *testing.T) {
+	header := "diff --git a/name@@ marker.go b/name@@ marker.go\n--- a/name@@ marker.go\n+++ b/name@@ marker.go\n"
+	first := "@@ -1 +1 @@\n-old one\n+new one\n"
+	second := "@@ -10 +10 @@\n-old two\n+new two\n"
+	chunks, err := ChunkPatch(header+first+second, len(header)+max(len(first), len(second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+	for _, chunk := range chunks {
+		if !strings.HasPrefix(chunk, header) {
+			t.Fatalf("file header was truncated: %q", chunk)
+		}
+	}
+	if !strings.Contains(chunks[0], first) || !strings.Contains(chunks[1], second) {
+		t.Fatalf("hunks were not preserved: %#v", chunks)
+	}
+}
+
 func TestDisplayPathEscapesTerminalAndMarkdownControls(t *testing.T) {
 	if got := DisplayPath("src/main.go"); got != "src/main.go" {
 		t.Fatalf("safe path changed: %q", got)

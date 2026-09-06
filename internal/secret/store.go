@@ -1,13 +1,16 @@
 package secret
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/divyangchauhan/DiffVouch/internal/privatefile"
+	"github.com/gofrs/flock"
 	"github.com/zalando/go-keyring"
 )
 
@@ -48,12 +51,7 @@ func Store(name, value, backend string) (Ref, error) {
 	if backend != "auto" && backend != "file" {
 		return Ref{}, fmt.Errorf("unsupported secret storage %q", backend)
 	}
-	values, err := loadFile()
-	if err != nil {
-		return Ref{}, err
-	}
-	values[name] = value
-	if err := saveFile(values); err != nil {
+	if err := updateFile(func(values map[string]string) { values[name] = value }); err != nil {
 		return Ref{}, err
 	}
 	return Ref{Name: name, Backend: "file"}, nil
@@ -87,12 +85,7 @@ func Delete(ref Ref) error {
 		}
 		return err
 	case "file":
-		values, err := loadFile()
-		if err != nil {
-			return err
-		}
-		delete(values, ref.Name)
-		return saveFile(values)
+		return updateFile(func(values map[string]string) { delete(values, ref.Name) })
 	default:
 		return fmt.Errorf("unsupported secret backend %q", ref.Backend)
 	}
@@ -114,7 +107,38 @@ func loadFile() (map[string]string, error) {
 	if err := json.Unmarshal(raw, &values); err != nil {
 		return nil, fmt.Errorf("parse fallback secret file: %w", err)
 	}
+	if values == nil {
+		values = map[string]string{}
+	}
 	return values, nil
+}
+
+func updateFile(update func(map[string]string)) error {
+	path, err := secretPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create fallback secret directory: %w", err)
+	}
+	_ = os.Chmod(filepath.Dir(path), 0o700)
+	lock := flock.New(path + ".lock")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	locked, err := lock.TryLockContext(ctx, 25*time.Millisecond)
+	if err != nil {
+		return fmt.Errorf("lock fallback secret file: %w", err)
+	}
+	if !locked {
+		return errors.New("timed out locking fallback secret file")
+	}
+	defer func() { _ = lock.Unlock() }()
+	values, err := loadFile()
+	if err != nil {
+		return err
+	}
+	update(values)
+	return saveFile(values)
 }
 
 func saveFile(values map[string]string) error {

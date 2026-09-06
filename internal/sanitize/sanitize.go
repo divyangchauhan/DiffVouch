@@ -2,7 +2,9 @@ package sanitize
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 const placeholder = "[REDACTED BY DIFFVOUCH]"
@@ -74,4 +76,19 @@ func Redact(value string) (string, int) {
 		output.WriteString(prefix + content + ending)
 	}
 	return output.String(), count
+}
+
+// TerminalText escapes control and formatting characters in untrusted text
+// while leaving ordinary Unicode readable.
+func TerminalText(value string) string {
+	var output strings.Builder
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.In(character, unicode.Cf) {
+			escaped := strconv.QuoteRuneToASCII(character)
+			output.WriteString(escaped[1 : len(escaped)-1])
+			continue
+		}
+		output.WriteRune(character)
+	}
+	return output.String()
 }

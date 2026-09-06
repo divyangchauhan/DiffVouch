@@ -3,6 +3,7 @@ module github.com/divyangchauhan/DiffVouch
 go 1.24.0
 
 require (
+	github.com/gofrs/flock v0.12.1
 	github.com/spf13/cobra v1.10.1
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/term v0.35.0

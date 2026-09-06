@@ -286,6 +286,7 @@ func SplitFilePatches(patch string) []string {
 }
 
 var diffHeader = regexp.MustCompile(`^diff --git ("(?:\\.|[^"])*"|\S+) ("(?:\\.|[^"])*"|\S+)`)
+var hunkHeader = regexp.MustCompile(`(?m)^@@ `)
 
 func PatchPath(section string) string {
 	var fallback string
@@ -394,12 +395,13 @@ func ChunkPatch(patch string, limit int) ([]string, error) {
 			current.WriteString(section)
 			continue
 		}
-		hunkAt := strings.Index(section, "@@ ")
-		if hunkAt < 0 {
+		hunkLocation := hunkHeader.FindStringIndex(section)
+		if hunkLocation == nil {
 			return nil, dv.New(dv.ExitCoverage, "a single changed file exceeds the chunk limit")
 		}
+		hunkAt := hunkLocation[0]
 		header := section[:hunkAt]
-		hunkStarts := regexp.MustCompile(`(?m)^@@ `).FindAllStringIndex(section[hunkAt:], -1)
+		hunkStarts := hunkHeader.FindAllStringIndex(section[hunkAt:], -1)
 		for index, location := range hunkStarts {
 			end := len(section) - hunkAt
 			if index+1 < len(hunkStarts) {

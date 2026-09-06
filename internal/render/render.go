@@ -7,6 +7,7 @@ import (
 
 	"github.com/divyangchauhan/DiffVouch/internal/gitdiff"
 	"github.com/divyangchauhan/DiffVouch/internal/model"
+	"github.com/divyangchauhan/DiffVouch/internal/sanitize"
 )
 
 func JSON(result model.ReviewResult) (string, error) {
@@ -19,7 +20,7 @@ func JSON(result model.ReviewResult) (string, error) {
 
 func Terminal(result model.ReviewResult) string {
 	var output strings.Builder
-	fmt.Fprintf(&output, "DiffVouch review: %.1f/5 — %s\n\n%s\n\n", result.Rating.Overall, result.Rating.Label, result.Summary)
+	fmt.Fprintf(&output, "DiffVouch review: %.1f/5 — %s\n\n%s\n\n", result.Rating.Overall, result.Rating.Label, sanitize.TerminalText(result.Summary))
 	fmt.Fprintf(&output, "Scope: %s · base %s (%s) · head %s\n\n", result.Scope.Mode, result.Scope.BaseRef, result.Scope.BaseSHA, result.Scope.HeadSHA)
 	blocking := filter(result.Findings, true)
 	nonBlocking := filter(result.Findings, false)
@@ -28,14 +29,14 @@ func Terminal(result model.ReviewResult) string {
 	if len(result.PositiveObservations) > 0 {
 		output.WriteString("Positive observations\n")
 		for _, observation := range result.PositiveObservations {
-			fmt.Fprintf(&output, "  - %s\n", observation)
+			fmt.Fprintf(&output, "  - %s\n", sanitize.TerminalText(observation))
 		}
 		output.WriteString("\n")
 	}
 	if len(result.NeedsVerification) > 0 {
 		output.WriteString("Needs verification\n")
 		for _, item := range result.NeedsVerification {
-			fmt.Fprintf(&output, "  - %s\n", item)
+			fmt.Fprintf(&output, "  - %s\n", sanitize.TerminalText(item))
 		}
 		output.WriteString("\n")
 	}
@@ -94,7 +95,9 @@ func writeFindings(output *strings.Builder, heading string, findings []model.Fin
 				location += fmt.Sprintf(":%d", *finding.Line)
 			}
 		}
-		fmt.Fprintf(output, "  %s [%s] %s%s\n    %s\n    Recommendation: %s\n", finding.ID, finding.Severity, finding.Title, location, finding.Explanation, finding.Recommendation)
+		fmt.Fprintf(output, "  %s [%s] %s%s\n    %s\n    Recommendation: %s\n",
+			finding.ID, finding.Severity, sanitize.TerminalText(finding.Title), location,
+			sanitize.TerminalText(finding.Explanation), sanitize.TerminalText(finding.Recommendation))
 	}
 	output.WriteString("\n")
 }

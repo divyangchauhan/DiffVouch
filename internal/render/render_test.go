@@ -32,3 +32,23 @@ func TestTerminalEscapesFindingPathControls(t *testing.T) {
 		t.Fatalf("unsafe path reached terminal output: %q", output)
 	}
 }
+
+func TestTerminalEscapesProviderControlledText(t *testing.T) {
+	result := model.ReviewResult{
+		Summary: "summary\nforged\x1b]52;c;clipboard\a",
+		Findings: []model.Finding{{
+			ID: "DV-001", Severity: model.Medium, Title: "title\x1b[31m", Explanation: "explanation\rforged", Recommendation: "recommendation\nforged",
+		}},
+		PositiveObservations: []string{"positive\x1b[2J"},
+		NeedsVerification:    []string{"verification\u202eforged"},
+	}
+	output := Terminal(result)
+	if strings.ContainsAny(output, "\x1b\a\r\u202e") || strings.Contains(output, "summary\nforged") || strings.Contains(output, "recommendation\nforged") {
+		t.Fatalf("provider control text reached terminal output: %q", output)
+	}
+	for _, escaped := range []string{`summary\nforged\x1b`, `explanation\rforged`, `recommendation\nforged`, `verification\u202e`} {
+		if !strings.Contains(output, escaped) {
+			t.Fatalf("missing terminal-safe text %q in %q", escaped, output)
+		}
+	}
+}

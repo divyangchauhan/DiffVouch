@@ -43,3 +43,16 @@ func TestRedactQuotedConfigurationKey(t *testing.T) {
 		t.Fatalf("quoted-key secret leaked: count=%d output=%s", count, output)
 	}
 }
+
+func TestTerminalTextEscapesControlAndFormattingCharacters(t *testing.T) {
+	input := "summary\n\x1b]52;c;payload\a\u202eforged"
+	output := TerminalText(input)
+	if strings.ContainsAny(output, "\n\x1b\a\u202e") {
+		t.Fatalf("terminal control character remained: %q", output)
+	}
+	for _, escaped := range []string{`\n`, `\x1b`, `\a`, `\u202e`} {
+		if !strings.Contains(output, escaped) {
+			t.Fatalf("missing escape %q in %q", escaped, output)
+		}
+	}
+}

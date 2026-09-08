@@ -19,6 +19,12 @@ var (
 	}
 	privateKeyBegin = regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----`)
 	privateKeyEnd   = regexp.MustCompile(`-----END (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----`)
+	markdownEscaper = strings.NewReplacer(
+		`\`, `\\`, "`", "\\`", `*`, `\*`, `_`, `\_`, `{`, `\{`, `}`, `\}`,
+		`[`, `\[`, `]`, `\]`, `(`, `\(`, `)`, `\)`, `#`, `\#`, `+`, `\+`,
+		`-`, `\-`, `.`, `\.`, `!`, `\!`, `|`, `\|`, `~`, `\~`,
+		`&`, `&amp;`, `<`, `&lt;`, `>`, `&gt;`, `@`, `&#64;`,
+	)
 )
 
 func Redact(value string) (string, int) {
@@ -91,4 +97,20 @@ func TerminalText(value string) string {
 		output.WriteRune(character)
 	}
 	return output.String()
+}
+
+// MarkdownText renders untrusted provider output as plain GitHub Markdown text.
+// Newlines remain readable, while formatting syntax, mentions, HTML, and control
+// characters are neutralized.
+func MarkdownText(value string) string {
+	var plain strings.Builder
+	for _, character := range value {
+		if character != '\n' && (unicode.IsControl(character) || unicode.In(character, unicode.Cf)) {
+			escaped := strconv.QuoteRuneToASCII(character)
+			plain.WriteString(escaped[1 : len(escaped)-1])
+			continue
+		}
+		plain.WriteRune(character)
+	}
+	return markdownEscaper.Replace(plain.String())
 }

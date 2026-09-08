@@ -56,3 +56,16 @@ func TestTerminalTextEscapesControlAndFormattingCharacters(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkdownTextNeutralizesFormattingHTMLAndMentions(t *testing.T) {
+	input := "# forged [link](https://example.invalid) <details> @octocat\n**bold**\x1b[2J"
+	output := MarkdownText(input)
+	for _, escaped := range []string{`\# forged`, `\[link\]`, `&lt;details&gt;`, `&#64;octocat`, `\*\*bold\*\*`, `\\x1b`} {
+		if !strings.Contains(output, escaped) {
+			t.Fatalf("missing escaped Markdown %q in %q", escaped, output)
+		}
+	}
+	if strings.Contains(output, "<") || strings.Contains(output, "@octocat") || strings.ContainsRune(output, '\x1b') {
+		t.Fatalf("active HTML, mention, or control character remained in %q", output)
+	}
+}

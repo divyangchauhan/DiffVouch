@@ -1,16 +1,13 @@
 package secret
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/divyangchauhan/DiffVouch/internal/privatefile"
-	"github.com/gofrs/flock"
 	"github.com/zalando/go-keyring"
 )
 
@@ -118,27 +115,14 @@ func updateFile(update func(map[string]string)) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create fallback secret directory: %w", err)
-	}
-	_ = os.Chmod(filepath.Dir(path), 0o700)
-	lock := flock.New(path + ".lock")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	locked, err := lock.TryLockContext(ctx, 25*time.Millisecond)
-	if err != nil {
-		return fmt.Errorf("lock fallback secret file: %w", err)
-	}
-	if !locked {
-		return errors.New("timed out locking fallback secret file")
-	}
-	defer func() { _ = lock.Unlock() }()
-	values, err := loadFile()
-	if err != nil {
-		return err
-	}
-	update(values)
-	return saveFile(values)
+	return privatefile.WithLock(path, func() error {
+		values, err := loadFile()
+		if err != nil {
+			return err
+		}
+		update(values)
+		return saveFile(values)
+	})
 }
 
 func saveFile(values map[string]string) error {

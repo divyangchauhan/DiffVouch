@@ -162,11 +162,15 @@ func globalPath() (string, error) {
 }
 
 func LoadGlobal() (Global, error) {
-	value := Global{Version: 1, APIKeys: map[string]secret.Ref{}, GitHubApps: map[string]GitHubApp{}}
 	path, err := globalPath()
 	if err != nil {
-		return value, err
+		return Global{}, err
 	}
+	return loadGlobal(path)
+}
+
+func loadGlobal(path string) (Global, error) {
+	value := Global{Version: 1, APIKeys: map[string]secret.Ref{}, GitHubApps: map[string]GitHubApp{}}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return value, nil
@@ -194,6 +198,30 @@ func SaveGlobal(value Global) error {
 	if err != nil {
 		return err
 	}
+	return privatefile.WithLock(path, func() error { return saveGlobal(path, value) })
+}
+
+func UpdateGlobal(update func(*Global) error) (Global, error) {
+	path, err := globalPath()
+	if err != nil {
+		return Global{}, err
+	}
+	var value Global
+	err = privatefile.WithLock(path, func() error {
+		var loadErr error
+		value, loadErr = loadGlobal(path)
+		if loadErr != nil {
+			return loadErr
+		}
+		if updateErr := update(&value); updateErr != nil {
+			return updateErr
+		}
+		return saveGlobal(path, value)
+	})
+	return value, err
+}
+
+func saveGlobal(path string, value Global) error {
 	raw, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err

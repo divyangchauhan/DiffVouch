@@ -33,8 +33,11 @@ import (
 	"github.com/divyangchauhan/DiffVouch/internal/dv"
 	"github.com/divyangchauhan/DiffVouch/internal/gitdiff"
 	"github.com/divyangchauhan/DiffVouch/internal/model"
+	"github.com/divyangchauhan/DiffVouch/internal/sanitize"
 	"github.com/divyangchauhan/DiffVouch/internal/secret"
 )
+
+const maxGitHubResponseBytes = 8 << 20
 
 type Client struct {
 	Config     config.GitHubApp
@@ -133,18 +136,18 @@ func configurePrivateKey(appID, slug string, privateKeyRaw []byte, host, storage
 	if strconv.Itoa(app.ID) != appID || (app.Slug != "" && app.Slug != slug) {
 		return config.GitHubApp{}, dv.New(dv.ExitGitHub, "GitHub App credentials do not match the supplied ID and slug")
 	}
-	global, err := config.LoadGlobal()
-	if err != nil {
-		return config.GitHubApp{}, dv.Wrap(dv.ExitGitHub, "load global config", err)
-	}
-	old, hadOld := global.GitHubApps[host]
 	ref, err := secret.Store(fmt.Sprintf("github-app:%s:%s:%d", host, appID, time.Now().UnixNano()), string(privateKeyRaw), storage)
 	if err != nil {
 		return config.GitHubApp{}, dv.Wrap(dv.ExitGitHub, "store GitHub App private key", err)
 	}
 	provisional.PrivateKey = ref
-	global.GitHubApps[host] = provisional
-	if err := config.SaveGlobal(global); err != nil {
+	var old config.GitHubApp
+	var hadOld bool
+	if _, err := config.UpdateGlobal(func(global *config.Global) error {
+		old, hadOld = global.GitHubApps[host]
+		global.GitHubApps[host] = provisional
+		return nil
+	}); err != nil {
 		_ = secret.Delete(ref)
 		return config.GitHubApp{}, dv.Wrap(dv.ExitGitHub, "save GitHub App config", err)
 	}
@@ -374,17 +377,19 @@ func LoadApp(host string) (config.GitHubApp, error) {
 }
 
 func RemoveApp(host string) (bool, error) {
-	global, err := config.LoadGlobal()
-	if err != nil {
+	var app config.GitHubApp
+	var found bool
+	if _, err := config.UpdateGlobal(func(global *config.Global) error {
+		app, found = global.GitHubApps[host]
+		if found {
+			delete(global.GitHubApps, host)
+		}
+		return nil
+	}); err != nil {
 		return false, err
 	}
-	app, ok := global.GitHubApps[host]
-	if !ok {
+	if !found {
 		return false, nil
-	}
-	delete(global.GitHubApps, host)
-	if err := config.SaveGlobal(global); err != nil {
-		return false, err
 	}
 	_ = secret.Delete(app.PrivateKey)
 	return true, nil
@@ -502,9 +507,9 @@ func (c *Client) request(method, path, token string, body any, target any, accep
 		return dv.Wrap(dv.ExitGitHub, "GitHub API request failed", err)
 	}
 	defer response.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	raw, err := readBoundedResponse(response.Body, maxGitHubResponseBytes)
 	if err != nil {
-		return err
+		return dv.Wrap(dv.ExitGitHub, "read GitHub API response", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail := string(raw)
@@ -523,6 +528,17 @@ func (c *Client) request(method, path, token string, body any, target any, accep
 		}
 	}
 	return nil
+}
+
+func readBoundedResponse(reader io.Reader, limit int) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(reader, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > limit {
+		return nil, fmt.Errorf("response exceeded the %d-byte safety limit", limit)
+	}
+	return raw, nil
 }
 
 func ParseRemote(repo, explicit, explicitHost string) (host, owner, name string, err error) {
@@ -739,7 +755,8 @@ func Publish(result *model.ReviewResult, repo, explicitRepo, explicitHost string
 		if _, ok := eligible[DiffLocation{*finding.Path, side, *finding.Line}]; !ok {
 			continue
 		}
-		body := fmt.Sprintf("**%s**\n\n%s\n\n**Recommendation:** %s", finding.Title, finding.Explanation, finding.Recommendation)
+		body := fmt.Sprintf("**%s**\n\n%s\n\n**Recommendation:** %s",
+			sanitize.MarkdownText(finding.Title), sanitize.MarkdownText(finding.Explanation), sanitize.MarkdownText(finding.Recommendation))
 		if finding.Confidence == "medium" {
 			body = "**Medium confidence:** " + body
 		}
@@ -780,7 +797,7 @@ func validatePullForReview(pull Pull, result *model.ReviewResult) error {
 
 func ReviewBody(result model.ReviewResult) string {
 	var output strings.Builder
-	fmt.Fprintf(&output, "## DiffVouch review\n\n**Rating: %.1f/5 — %s**\n\n%s\n\n", result.Rating.Overall, result.Rating.Label, result.Summary)
+	fmt.Fprintf(&output, "## DiffVouch review\n\n**Rating: %.1f/5 — %s**\n\n%s\n\n", result.Rating.Overall, result.Rating.Label, sanitize.MarkdownText(result.Summary))
 	for _, group := range []struct {
 		heading  string
 		blocking bool
@@ -800,7 +817,8 @@ func ReviewBody(result model.ReviewResult) string {
 				}
 				locationText += "`"
 			}
-			fmt.Fprintf(&output, "- **%s · %s**%s\n  %s\n  **Recommendation:** %s\n", finding.Severity, finding.Title, locationText, finding.Explanation, finding.Recommendation)
+			fmt.Fprintf(&output, "- **%s · %s**%s\n  %s\n  **Recommendation:** %s\n", finding.Severity,
+				sanitize.MarkdownText(finding.Title), locationText, sanitize.MarkdownText(finding.Explanation), sanitize.MarkdownText(finding.Recommendation))
 		}
 		if count == 0 {
 			output.WriteString("None.\n")
@@ -810,7 +828,7 @@ func ReviewBody(result model.ReviewResult) string {
 	if len(result.NeedsVerification) > 0 {
 		output.WriteString("### Needs verification\n\n")
 		for _, item := range result.NeedsVerification {
-			fmt.Fprintf(&output, "- %s\n", item)
+			fmt.Fprintf(&output, "- %s\n", sanitize.MarkdownText(item))
 		}
 		output.WriteString("\n")
 	}

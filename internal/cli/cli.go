@@ -307,17 +307,17 @@ func authSetKeyCommand() *cobra.Command {
 			return dv.Wrap(dv.ExitArguments, "read API key", err)
 		}
 		value := strings.TrimSpace(string(raw))
-		global, err := config.LoadGlobal()
-		if err != nil {
-			return err
-		}
-		previous, hadPrevious := global.APIKeys[providerName]
 		ref, err := secret.Store(fmt.Sprintf("api-key:%s:%d", providerName, time.Now().UnixNano()), value, storage)
 		if err != nil {
 			return err
 		}
-		global.APIKeys[providerName] = ref
-		if err := config.SaveGlobal(global); err != nil {
+		var previous secret.Ref
+		var hadPrevious bool
+		if _, err := config.UpdateGlobal(func(global *config.Global) error {
+			previous, hadPrevious = global.APIKeys[providerName]
+			global.APIKeys[providerName] = ref
+			return nil
+		}); err != nil {
 			_ = secret.Delete(ref)
 			return err
 		}
@@ -334,18 +334,20 @@ func authSetKeyCommand() *cobra.Command {
 
 func authRemoveKeyCommand() *cobra.Command {
 	return &cobra.Command{Use: "remove-key <openai|anthropic>", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
-		global, err := config.LoadGlobal()
-		if err != nil {
+		var ref secret.Ref
+		var found bool
+		if _, err := config.UpdateGlobal(func(global *config.Global) error {
+			ref, found = global.APIKeys[args[0]]
+			if found {
+				delete(global.APIKeys, args[0])
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		ref, ok := global.APIKeys[args[0]]
-		if !ok {
+		if !found {
 			fmt.Fprintf(command.OutOrStdout(), "No stored %s API key.\n", args[0])
 			return nil
-		}
-		delete(global.APIKeys, args[0])
-		if err := config.SaveGlobal(global); err != nil {
-			return err
 		}
 		_ = secret.Delete(ref)
 		fmt.Fprintf(command.OutOrStdout(), "Removed %s API key.\n", args[0])

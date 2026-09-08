@@ -1,10 +1,15 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+
+	"github.com/divyangchauhan/DiffVouch/internal/secret"
 )
 
 func configRepository(t *testing.T) string {
@@ -65,8 +70,15 @@ func TestRepositoryConfigCannotSelectAPI(t *testing.T) {
 	repo := configRepository(t)
 	path := filepath.Join(repo, "unsafe.yml")
 	_ = os.WriteFile(path, []byte("version: 1\nprovider:\n  default_transport: api\n"), 0o600)
-	if _, err := LoadRepository(repo, path, "HEAD"); err == nil {
-		t.Fatal("API transport should not be selectable by repository config")
+	for _, args := range [][]string{{"add", "unsafe.yml"}, {"commit", "-q", "-m", "unsafe config"}} {
+		command := exec.Command("git", args...)
+		command.Dir = repo
+		if err := command.Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := LoadRepository(repo, path, "HEAD"); err == nil || !strings.Contains(err.Error(), "repository config cannot select API transport") {
+		t.Fatalf("API transport validation did not run: %v", err)
 	}
 }
 
@@ -86,5 +98,37 @@ func TestGlobalConfigUses0600Fallback(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode is %o", info.Mode().Perm())
+	}
+}
+
+func TestUpdateGlobalSerializesConcurrentMutations(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	const count = 24
+	errors := make(chan error, count)
+	var wait sync.WaitGroup
+	for index := 0; index < count; index++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			_, err := UpdateGlobal(func(global *Global) error {
+				global.APIKeys[fmt.Sprintf("provider-%d", index)] = secret.Ref{Name: fmt.Sprintf("secret-%d", index), Backend: "file"}
+				return nil
+			})
+			errors <- err
+		}(index)
+	}
+	wait.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	global, err := LoadGlobal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(global.APIKeys) != count {
+		t.Fatalf("concurrent global updates were lost: got %d, want %d", len(global.APIKeys), count)
 	}
 }

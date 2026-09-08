@@ -654,3 +654,40 @@ local or opt-in telemetry.
 - The initial configuration format is `.diffvouch.yml`.
 - The CLI is implemented in Go and distributed as standalone native executables
   for macOS, Linux, and Windows on AMD64 and ARM64. End users do not need a Go runtime.
+
+## 22. Post-MVP Roadmap
+
+These capabilities are intentionally deferred from the current CLI pull request.
+Each should have a dedicated GitHub issue before implementation, with this section
+as the durable product-level source of requirements.
+
+### Event-Driven Pull Request Reviews
+
+- Run a review when an opted-in pull request is opened, reopened, or receives new
+  commits, and when a pull-request comment explicitly mentions the app and asks for
+  a review.
+- Preserve the user- or organization-owned GitHub App model; DiffVouch must not
+  require a centrally operated SaaS bot.
+- Provide an opt-in GitHub Actions workflow or self-hosted runner that invokes the
+  CLI from GitHub events. Store App and provider credentials in the repository or
+  organization Actions secret store.
+- Never execute code from an untrusted pull request. Event handling, checkout, and
+  credential access must be designed to prevent a pull request from modifying the
+  trusted review workflow before it runs.
+- Coalesce duplicate events, identify the reviewed head SHA, and avoid publishing
+  duplicate reviews for the same commit and configuration.
+
+### False-Positive Disposition and Suppression
+
+- Give every finding a stable fingerprint derived from its rule or semantic issue,
+  repository-relative location, and enough normalized context to survive small line
+  movements without suppressing unrelated problems.
+- Let maintainers mark a finding as a false positive with a reason, author, creation
+  date, and optional expiry. Support a local CLI workflow first; bot-comment actions
+  may be added with event-driven reviews.
+- Store shared suppressions in a versioned repository file loaded from the trusted
+  base branch. A pull request must not be able to suppress findings in its own diff.
+  Machine-local suppressions may also be supported for personal workflows.
+- Reports must show how many findings were suppressed and provide an audit command
+  that lists, expires, or removes suppressions. Stale fingerprints should be easy to
+  identify and clean up.

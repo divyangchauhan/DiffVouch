@@ -83,6 +83,38 @@ func TestReviewBodyEscapesFilenameControls(t *testing.T) {
 	}
 }
 
+func TestReviewBodyNeutralizesProviderMarkdown(t *testing.T) {
+	path := "review.go"
+	line := 12
+	result := model.ReviewResult{
+		Summary: "@octocat <details> [click](https://example.invalid)",
+		Findings: []model.Finding{{
+			Severity: model.High, Title: "# injected", Explanation: "**bold**", Recommendation: "@team",
+			Path: &path, Line: &line,
+		}},
+		NeedsVerification: []string{"<script>alert(1)</script>"},
+	}
+	body := ReviewBody(result)
+	for _, safe := range []string{"&#64;octocat", "&lt;details&gt;", `\[click\]`, `\# injected`, `\*\*bold\*\*`, "&#64;team", "&lt;script&gt;"} {
+		if !strings.Contains(body, safe) {
+			t.Fatalf("escaped provider text %q missing from review body: %q", safe, body)
+		}
+	}
+	if strings.Contains(body, "<details>") || strings.Contains(body, "@octocat") || strings.Contains(body, "@team") || strings.Contains(body, "<script>") {
+		t.Fatalf("active provider Markdown reached review body: %q", body)
+	}
+}
+
+func TestReadBoundedResponseRejectsTruncation(t *testing.T) {
+	raw, err := readBoundedResponse(strings.NewReader("1234"), 4)
+	if err != nil || string(raw) != "1234" {
+		t.Fatalf("response at limit was rejected: raw=%q err=%v", raw, err)
+	}
+	if _, err := readBoundedResponse(strings.NewReader("12345"), 4); err == nil || !strings.Contains(err.Error(), "exceeded") {
+		t.Fatalf("oversized response was silently truncated: %v", err)
+	}
+}
+
 func TestRequestFallsBackToDefaultHTTPClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

@@ -66,6 +66,23 @@ Review tracked and untracked working-tree changes:
 diffvouch review --provider codex
 ```
 
+Reviews run from the repository root with file-reading tools and shell/Bash
+access enabled, without permission prompts. The reviewer can inspect related
+files and run commands and tests. These commands have the access of your user
+account, including writes and network access. The review instructions prohibit
+source edits, commits, and publishing, but this is not a filesystem sandbox.
+API transport provides these tools directly through DiffVouch; neither Codex CLI
+nor Claude Code is required. It needs an API key and a model that supports tool
+calling and structured output. Install Bash on PATH for command execution, such
+as Git Bash on Windows. File reads work without Bash.
+
+API reviews return command output, exit status, and errors to the model for
+follow-up checks. Each command can run for up to 120 seconds and returns up to
+64 KiB of output, with truncation reported explicitly. File reads support paging.
+Each patch chunk allows up to 32 tool rounds or 128 tool calls, followed by a
+final review that records unfinished checks. A 10-minute deadline covers the
+entire chunk; exceeding it fails the review.
+
 Other common scopes:
 
 ```bash
@@ -75,6 +92,16 @@ diffvouch review --provider codex --base main --committed-only
 diffvouch review --provider codex --model gpt-5.6-sol --effort xhigh
 diffvouch review --provider codex --transport api --model gpt-5.6-sol
 diffvouch review --provider claude --format json --output review.json
+```
+
+Review without either provider CLI installed:
+
+```bash
+diffvouch auth set-key openai
+diffvouch review --provider codex --transport api --model YOUR_OPENAI_MODEL
+
+diffvouch auth set-key anthropic
+diffvouch review --provider claude --transport api --model YOUR_ANTHROPIC_MODEL
 ```
 
 Use the result as a local quality gate:

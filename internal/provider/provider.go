@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,24 +34,25 @@ type Options struct {
 	Transport string
 	Model     string
 	Effort    string
+	Root      string
 }
 
 func New(options Options) (Adapter, error) {
 	switch options.Name + "/" + options.Transport {
 	case "codex/cli":
-		return &cliAdapter{name: "codex", executable: "codex", model: options.Model, effort: options.Effort}, nil
+		return &cliAdapter{name: "codex", executable: "codex", model: options.Model, effort: options.Effort, root: options.Root}, nil
 	case "claude/cli":
-		return &cliAdapter{name: "claude", executable: "claude", model: options.Model, effort: options.Effort}, nil
+		return &cliAdapter{name: "claude", executable: "claude", model: options.Model, effort: options.Effort, root: options.Root}, nil
 	case "codex/api":
 		if options.Model == "" {
 			return nil, dv.New(dv.ExitProvider, "OpenAI API transport requires --model or a trusted repository model")
 		}
-		return &apiAdapter{name: "codex", model: options.Model, effort: options.Effort}, nil
+		return &apiAdapter{name: "codex", model: options.Model, effort: options.Effort, root: options.Root}, nil
 	case "claude/api":
 		if options.Model == "" {
 			return nil, dv.New(dv.ExitProvider, "Anthropic API transport requires --model or a trusted repository model")
 		}
-		return &apiAdapter{name: "claude", model: options.Model, effort: options.Effort}, nil
+		return &apiAdapter{name: "claude", model: options.Model, effort: options.Effort, root: options.Root}, nil
 	default:
 		return nil, dv.New(dv.ExitProvider, "unsupported provider/transport combination")
 	}
@@ -63,6 +63,7 @@ type cliAdapter struct {
 	executable string
 	model      string
 	effort     string
+	root       string
 }
 
 func (a *cliAdapter) Model() string {
@@ -108,10 +109,10 @@ func (a *cliAdapter) reviewCodex(ctx context.Context, prompt Prompt) (model.Prov
 	}
 	args := []string{
 		"exec", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config",
-		"--disable", "shell_tool", "--disable", "apps", "--disable", "multi_agent",
+		"--enable", "shell_tool", "--disable", "apps", "--disable", "multi_agent",
 		"--config", `web_search="disabled"`,
 		"--config", "developer_instructions=" + mustJSON(prompt.System),
-		"--sandbox", "read-only", "--output-schema", schemaPath,
+		"--dangerously-bypass-approvals-and-sandbox", "--output-schema", schemaPath,
 		"--output-last-message", outputPath,
 	}
 	if a.model != "" {
@@ -122,7 +123,7 @@ func (a *cliAdapter) reviewCodex(ctx context.Context, prompt Prompt) (model.Prov
 	}
 	args = append(args, "-")
 	command := exec.CommandContext(ctx, "codex", args...)
-	command.Dir = directory
+	command.Dir = a.root
 	command.Stdin = strings.NewReader(prompt.User)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
@@ -138,7 +139,7 @@ func (a *cliAdapter) reviewCodex(ctx context.Context, prompt Prompt) (model.Prov
 
 func (a *cliAdapter) reviewClaude(ctx context.Context, prompt Prompt) (model.ProviderReview, error) {
 	args := []string{
-		"--safe-mode", "--tools", "", "--disallowedTools", "mcp__*",
+		"--safe-mode", "--tools", "Bash,Read,Glob,Grep", "--dangerously-skip-permissions", "--disallowedTools", "mcp__*",
 		"--no-session-persistence", "--output-format", "json",
 		"--json-schema", string(schemaJSON()), "--system-prompt", prompt.System,
 	}
@@ -150,6 +151,7 @@ func (a *cliAdapter) reviewClaude(ctx context.Context, prompt Prompt) (model.Pro
 	}
 	args = append(args, "-p")
 	command := exec.CommandContext(ctx, "claude", args...)
+	command.Dir = a.root
 	command.Stdin = strings.NewReader(prompt.User)
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
@@ -170,100 +172,6 @@ func (a *cliAdapter) reviewClaude(ctx context.Context, prompt Prompt) (model.Pro
 		return decodeReview([]byte(envelope.Result))
 	}
 	return model.ProviderReview{}, dv.New(dv.ExitProvider, "Claude completed without structured output")
-}
-
-type apiAdapter struct {
-	name   string
-	model  string
-	effort string
-}
-
-func (a *apiAdapter) Model() string { return a.model }
-
-func (a *apiAdapter) Review(prompt Prompt) (model.ProviderReview, error) {
-	if a.name == "codex" {
-		return a.reviewOpenAI(prompt)
-	}
-	return a.reviewAnthropic(prompt)
-}
-
-func (a *apiAdapter) reviewOpenAI(prompt Prompt) (model.ProviderReview, error) {
-	body := map[string]any{
-		"model": a.model,
-		"input": []map[string]string{{"role": "developer", "content": prompt.System}, {"role": "user", "content": prompt.User}},
-		"store": false,
-		"text": map[string]any{"format": map[string]any{
-			"type": "json_schema", "name": "diffvouch_review", "schema": schema(), "strict": true,
-		}},
-	}
-	if a.effort != "" {
-		body["reasoning"] = map[string]string{"effort": a.effort}
-	}
-	key, err := apiKey("openai")
-	if err != nil {
-		return model.ProviderReview{}, err
-	}
-	var response struct {
-		Status string `json:"status"`
-		Output []struct {
-			Type    string `json:"type"`
-			Content []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"content"`
-		} `json:"output"`
-	}
-	if err := postJSON("https://api.openai.com/v1/responses", map[string]string{"Authorization": "Bearer " + key}, body, &response); err != nil {
-		return model.ProviderReview{}, err
-	}
-	if response.Status != "completed" {
-		return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI response did not complete")
-	}
-	for _, item := range response.Output {
-		for _, content := range item.Content {
-			if content.Type == "refusal" {
-				return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI refused the review")
-			}
-			if content.Type == "output_text" {
-				return decodeReview([]byte(content.Text))
-			}
-		}
-	}
-	return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI response contained no structured output")
-}
-
-func (a *apiAdapter) reviewAnthropic(prompt Prompt) (model.ProviderReview, error) {
-	body := map[string]any{
-		"model": a.model, "max_tokens": 8192, "system": prompt.System,
-		"messages":      []map[string]string{{"role": "user", "content": prompt.User}},
-		"output_config": map[string]any{"format": map[string]any{"type": "json_schema", "schema": schema()}},
-	}
-	if a.effort != "" {
-		body["effort"] = a.effort
-	}
-	key, err := apiKey("anthropic")
-	if err != nil {
-		return model.ProviderReview{}, err
-	}
-	var response struct {
-		StopReason string `json:"stop_reason"`
-		Content    []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := postJSON("https://api.anthropic.com/v1/messages", map[string]string{"x-api-key": key, "anthropic-version": "2023-06-01"}, body, &response); err != nil {
-		return model.ProviderReview{}, err
-	}
-	if response.StopReason == "max_tokens" {
-		return model.ProviderReview{}, dv.New(dv.ExitProvider, "Anthropic response was truncated")
-	}
-	for _, content := range response.Content {
-		if content.Type == "text" {
-			return decodeReview([]byte(content.Text))
-		}
-	}
-	return model.ProviderReview{}, dv.New(dv.ExitProvider, "Anthropic response contained no structured output")
 }
 
 func apiKey(name string) (string, error) {
@@ -287,39 +195,6 @@ func apiKey(name string) (string, error) {
 		return "", dv.Wrap(dv.ExitProvider, "read provider API key", err)
 	}
 	return value, nil
-}
-
-func postJSON(url string, headers map[string]string, body any, target any) error {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return dv.Wrap(dv.ExitProvider, "encode provider request", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		return dv.Wrap(dv.ExitProvider, "create provider request", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	for name, value := range headers {
-		request.Header.Set(name, value)
-	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return dv.Wrap(dv.ExitProvider, "provider request failed", err)
-	}
-	defer response.Body.Close()
-	responseRaw, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
-	if err != nil {
-		return dv.Wrap(dv.ExitProvider, "read provider response", err)
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return dv.New(dv.ExitProvider, fmt.Sprintf("provider returned HTTP %d: %s", response.StatusCode, safeDetail(string(responseRaw))))
-	}
-	if err := json.Unmarshal(responseRaw, target); err != nil {
-		return dv.Wrap(dv.ExitProvider, "decode provider response", err)
-	}
-	return nil
 }
 
 func decodeReview(raw []byte) (model.ProviderReview, error) {

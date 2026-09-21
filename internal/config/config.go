@@ -151,6 +151,7 @@ type Global struct {
 	Version    int                   `json:"version"`
 	APIKeys    map[string]secret.Ref `json:"api_keys"`
 	GitHubApps map[string]GitHubApp  `json:"github_apps"`
+	ChatGPT    *secret.Ref           `json:"chatgpt,omitempty"`
 }
 
 func globalPath() (string, error) {

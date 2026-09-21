@@ -30,11 +30,12 @@ type Adapter interface {
 }
 
 type Options struct {
-	Name      string
-	Transport string
-	Model     string
-	Effort    string
-	Root      string
+	Name       string
+	Transport  string
+	Model      string
+	Effort     string
+	Root       string
+	BeforeCall func(context.Context) error
 }
 
 func New(options Options) (Adapter, error) {
@@ -48,6 +49,11 @@ func New(options Options) (Adapter, error) {
 			return nil, dv.New(dv.ExitProvider, "OpenAI API transport requires --model or a trusted repository model")
 		}
 		return &apiAdapter{name: "codex", model: options.Model, effort: options.Effort, root: options.Root}, nil
+	case "codex/subscription":
+		if options.Model == "" {
+			return nil, dv.New(dv.ExitProvider, "ChatGPT subscription transport requires --model or a trusted repository model")
+		}
+		return &apiAdapter{name: "codex", subscription: true, model: options.Model, effort: options.Effort, root: options.Root, beforeCall: options.BeforeCall}, nil
 	case "claude/api":
 		if options.Model == "" {
 			return nil, dv.New(dv.ExitProvider, "Anthropic API transport requires --model or a trusted repository model")
@@ -326,4 +332,16 @@ func safeDetail(value string) string {
 func mustJSON(value string) string {
 	raw, _ := json.Marshal(value)
 	return string(raw)
+}
+
+// GenerateJSON runs the native subscription tool loop with a caller-provided
+// output schema. Evaluation judges use this without changing review prompts.
+func GenerateJSON(ctx context.Context, options Options, prompt Prompt, outputSchema map[string]any) (json.RawMessage, error) {
+	if options.Transport != "subscription" || options.Name != "codex" || options.Model == "" {
+		return nil, dv.New(dv.ExitArguments, "structured evaluation requires an explicit OpenAI subscription model")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	a := &apiAdapter{name: "codex", subscription: true, model: options.Model, effort: options.Effort, root: options.Root, beforeCall: options.BeforeCall}
+	return a.generateOpenAI(ctx, prompt, outputSchema)
 }

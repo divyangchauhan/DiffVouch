@@ -25,6 +25,8 @@ const (
 type apiAdapter struct {
 	name, model, effort, root string
 	client                    *http.Client
+	subscription              bool
+	beforeCall                func(context.Context) error
 }
 
 func (a *apiAdapter) Model() string { return a.model }
@@ -53,10 +55,27 @@ type apiBlock struct {
 	Content   []apiBlock      `json:"content"`
 }
 
+type openAIResponse struct {
+	Status string            `json:"status"`
+	Output []json.RawMessage `json:"output"`
+}
+
 func (a *apiAdapter) reviewOpenAI(ctx context.Context, prompt Prompt) (model.ProviderReview, error) {
-	key, err := apiKey("openai")
+	raw, err := a.generateOpenAI(ctx, prompt, schema())
 	if err != nil {
 		return model.ProviderReview{}, err
+	}
+	return decodeReview(raw)
+}
+
+func (a *apiAdapter) generateOpenAI(ctx context.Context, prompt Prompt, outputSchema map[string]any) (json.RawMessage, error) {
+	var key string
+	if !a.subscription {
+		var err error
+		key, err = apiKey("openai")
+		if err != nil {
+			return nil, err
+		}
 	}
 	input := []any{map[string]string{"role": "developer", "content": prompt.System}, map[string]string{"role": "user", "content": prompt.User}}
 	tools := make([]map[string]any, 0, 2)
@@ -67,11 +86,16 @@ func (a *apiAdapter) reviewOpenAI(ctx context.Context, prompt Prompt) (model.Pro
 		"model": a.model, "store": false, "tools": tools,
 		"include": []string{"reasoning.encrypted_content"},
 		"text": map[string]any{"format": map[string]any{
-			"type": "json_schema", "name": "diffvouch_review", "schema": schema(), "strict": true,
+			"type": "json_schema", "name": "diffvouch_review", "schema": outputSchema, "strict": true,
 		}},
 	}
 	if a.effort != "" {
 		body["reasoning"] = map[string]string{"effort": a.effort}
+	}
+	if a.subscription {
+		body["instructions"] = prompt.System
+		body["stream"] = true
+		input = input[1:]
 	}
 	seen := map[string]bool{}
 	for round := 0; round <= maxToolRounds; round++ {
@@ -80,29 +104,32 @@ func (a *apiAdapter) reviewOpenAI(ctx context.Context, prompt Prompt) (model.Pro
 			input = append(input, map[string]string{"role": "developer", "content": finalizeInstruction})
 		}
 		body["input"] = input
-		var response struct {
-			Status string            `json:"status"`
-			Output []json.RawMessage `json:"output"`
+		var response openAIResponse
+		var err error
+		if a.subscription {
+			response, err = a.postSubscription(ctx, body)
+		} else {
+			err = a.postJSON(ctx, "https://api.openai.com/v1/responses", map[string]string{"Authorization": "Bearer " + key}, body, &response)
 		}
-		if err := a.postJSON(ctx, "https://api.openai.com/v1/responses", map[string]string{"Authorization": "Bearer " + key}, body, &response); err != nil {
-			return model.ProviderReview{}, err
+		if err != nil {
+			return nil, err
 		}
 		if response.Status != "completed" {
-			return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI response did not complete")
+			return nil, dv.New(dv.ExitProvider, "OpenAI response did not complete")
 		}
 		var calls []apiBlock
 		var text strings.Builder
 		for _, raw := range response.Output {
 			var block apiBlock
 			if err := json.Unmarshal(raw, &block); err != nil {
-				return model.ProviderReview{}, dv.Wrap(dv.ExitProvider, "decode OpenAI output item", err)
+				return nil, dv.Wrap(dv.ExitProvider, "decode OpenAI output item", err)
 			}
 			if block.Type == "function_call" {
 				calls = append(calls, block)
 			}
 			for _, content := range block.Content {
 				if content.Type == "refusal" {
-					return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI refused the review")
+					return nil, dv.New(dv.ExitProvider, "OpenAI refused the review")
 				}
 				if content.Type == "output_text" {
 					text.WriteString(content.Text)
@@ -112,23 +139,27 @@ func (a *apiAdapter) reviewOpenAI(ctx context.Context, prompt Prompt) (model.Pro
 		}
 		if len(calls) == 0 {
 			if text.Len() == 0 {
-				return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI response contained no structured output")
+				return nil, dv.New(dv.ExitProvider, "OpenAI response contained no structured output")
 			}
-			return decodeReview([]byte(text.String()))
+			raw := json.RawMessage(text.String())
+			if !json.Valid(raw) {
+				return nil, dv.New(dv.ExitProvider, "provider returned invalid JSON")
+			}
+			return raw, nil
 		}
 		ids := make([]string, len(calls))
 		for i, call := range calls {
 			ids[i] = call.CallID
 		}
 		if err := validateToolCalls(round, ids, seen); err != nil {
-			return model.ProviderReview{}, err
+			return nil, err
 		}
 		for _, call := range calls {
 			result := executeTool(ctx, a.root, call.Name, json.RawMessage(call.Arguments))
 			input = append(input, map[string]any{"type": "function_call_output", "call_id": call.CallID, "output": result.json()})
 		}
 	}
-	return model.ProviderReview{}, dv.New(dv.ExitProvider, "OpenAI review exceeded the tool round limit")
+	return nil, dv.New(dv.ExitProvider, "OpenAI review exceeded the tool round limit")
 }
 
 func (a *apiAdapter) reviewAnthropic(ctx context.Context, prompt Prompt) (model.ProviderReview, error) {

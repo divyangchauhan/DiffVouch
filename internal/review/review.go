@@ -1,6 +1,8 @@
 package review
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,6 +35,7 @@ type Options struct {
 	PublicationRequested bool
 	Root                 string
 	Diagnostics          io.Writer
+	BeforeCall           func(context.Context) error
 }
 
 func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) {
@@ -100,7 +103,7 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 	if err != nil {
 		return nil, nil, err
 	}
-	adapter, err := provider.New(provider.Options{Name: options.ProviderName, Transport: transport, Model: selectedModel, Effort: options.Effort, Root: repo})
+	adapter, err := provider.New(provider.Options{Name: options.ProviderName, Transport: transport, Model: selectedModel, Effort: options.Effort, Root: repo, BeforeCall: options.BeforeCall})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -274,4 +277,12 @@ func combine(reviews []model.ProviderReview, sizes []int) model.ProviderReview {
 	sort.Strings(combined.PositiveObservations)
 	sort.Strings(combined.NeedsVerification)
 	return combined
+}
+
+// PromptHash identifies the default review instructions independently of the
+// executable. Repository-specific instructions remain pinned by the case base.
+func PromptHash() string {
+	defaults := config.Defaults()
+	raw, _ := json.Marshal(buildPrompt("", 1, 1, defaults.Review.Rubric, defaults.Review.Instructions))
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
 }

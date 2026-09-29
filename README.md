@@ -6,8 +6,8 @@ explains recommended fixes, and gives each change a transparent rating out of 5.
 
 The CLI is distributed as a standalone native executable. Users do not need Go,
 Python, Node.js, or a DiffVouch-hosted service to run it. Git is required. Codex
-or Claude Code is required only when using the corresponding subscription; API
-transport talks directly to OpenAI or Anthropic.
+or Claude Code is required for CLI transport. API transport talks directly to
+OpenAI or Anthropic; native subscription transport connects to ChatGPT.
 
 ## Install the CLI
 
@@ -33,7 +33,34 @@ Tagged releases are built for macOS, Linux, and Windows on AMD64 and ARM64.
 
 ## Configure an AI provider
 
-Use an existing ChatGPT/Codex subscription:
+Use your ChatGPT subscription with DiffVouch's native Go review loop:
+
+```bash
+diffvouch auth login openai --transport subscription
+diffvouch auth status openai --transport subscription
+diffvouch review --provider codex --transport subscription --model YOUR_SUBSCRIPTION_MODEL
+```
+
+Login prints a device verification URL and code. Complete the sign-in in your
+browser; device-code login must be enabled in your ChatGPT security settings
+or workspace permissions. DiffVouch stores its own session in the OS credential
+manager, with a mode-0600 file fallback, and refreshes it when needed. Use
+`--storage file` on login to explicitly select file storage. To remove this
+session, run `diffvouch auth logout openai --transport subscription`.
+
+The `codex` provider name selects OpenAI models. With `--transport subscription`,
+DiffVouch makes model requests directly and executes its own tools; Codex CLI,
+Claude Code, and the standalone review skill are not involved. Select a model
+available to your subscription. This transport never falls back to billable API
+calls, including when subscription limits are reached.
+
+Subscription transport is an experimental compatibility integration based on
+the [open-source Codex protocol](https://github.com/openai/codex/tree/a5290028a2936b91ec9305f6de7780463620ca70).
+OpenAI does not document this protocol as a stable third-party subscription API;
+service changes can require updates. See [subscription transport](docs/subscription-transport.md)
+for protocol references and validation status.
+
+Use an installed Codex CLI with your ChatGPT subscription:
 
 ```bash
 diffvouch auth login openai
@@ -66,6 +93,26 @@ Review tracked and untracked working-tree changes:
 diffvouch review --provider codex
 ```
 
+Reviews run from the repository root with file-reading tools and shell/Bash
+access enabled, without permission prompts. The reviewer can inspect related
+files and run commands and tests. These commands have the access of your user
+account, including writes and network access. The review instructions prohibit
+source edits, commits, and publishing, but this is not a filesystem sandbox.
+API transport provides these tools directly through DiffVouch; neither Codex CLI
+nor Claude Code is required. It needs an API key and a model that supports tool
+calling and structured output. Install Bash on PATH for command execution, such
+as Git Bash on Windows. File reads work without Bash.
+
+Subscription transport uses the same Go tool loop and execution permissions,
+with ChatGPT authentication instead of an API key.
+
+Native API and subscription reviews return command output, exit status, and errors to the model for
+follow-up checks. Each command can run for up to 120 seconds and returns up to
+64 KiB of output, with truncation reported explicitly. File reads support paging.
+Each patch chunk allows up to 32 tool rounds or 128 tool calls, followed by a
+final review that records unfinished checks. A 10-minute deadline covers the
+entire chunk; exceeding it fails the review.
+
 Other common scopes:
 
 ```bash
@@ -75,6 +122,16 @@ diffvouch review --provider codex --base main --committed-only
 diffvouch review --provider codex --model gpt-5.6-sol --effort xhigh
 diffvouch review --provider codex --transport api --model gpt-5.6-sol
 diffvouch review --provider claude --format json --output review.json
+```
+
+Review without either provider CLI installed:
+
+```bash
+diffvouch auth set-key openai
+diffvouch review --provider codex --transport api --model YOUR_OPENAI_MODEL
+
+diffvouch auth set-key anthropic
+diffvouch review --provider claude --transport api --model YOUR_ANTHROPIC_MODEL
 ```
 
 Use the result as a local quality gate:
@@ -172,3 +229,7 @@ go build -trimpath ./cmd/diffvouch
 ```
 
 GoReleaser packages versioned standalone binaries when a `v*` tag is pushed.
+
+## Review evaluations
+
+Use `diffvouch eval prepare`, `diffvouch eval run`, and `diffvouch eval report` for frozen, resumable evaluations of the native Go reviewer through the ChatGPT subscription transport. The corpus includes Martian's archived competitor reviews, all SWE-PRBench cases, and public PRs from a GitHub owner. Comparisons report coverage and uncertainty without enforcing a regression gate. See [running evaluations](docs/eval-running.md) for models, budget controls, held-out cases, and reporting limits.

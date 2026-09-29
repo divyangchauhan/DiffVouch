@@ -1,0 +1,522 @@
+{
+  "provenance": {
+    "created": "2026-09-21T07:24:52.204032+00:00",
+    "main_commit": "119d547c45a6138f2f2610d86d1ce6dee86eef93",
+    "support_commit": "6c4c6454bae8d47c9abff3233002923645c47780",
+    "with_tools_run": "/home/ubuntu/devel/DiffLoom/.diffvouch-evals/runs/f003bd8b42da24a9",
+    "with_tools_binary_sha256": "2b64632c2c562325bdd0f6dc1ba2e685019a5735d65689d26de076addcfdfbb3",
+    "selection": "First two completed DiffVouch cases per project in frozen manifest order; selected by completion status and project only, not review score.",
+    "projects": {
+      "discourse": 2,
+      "cal.com": 2,
+      "keycloak": 2,
+      "grafana": 2,
+      "sentry": 2
+    },
+    "case_ids": [
+      "martian/735a5f3ab092d616",
+      "martian/a04e7253d962dbf6",
+      "martian/e0f66e47c73fddbc",
+      "martian/fb78fbfca4ac3f27",
+      "martian/1ff10dc6e21f8d66",
+      "martian/24d467782874810d",
+      "martian/5c5505e00ad9099f",
+      "martian/e125545e1c3b7347",
+      "martian/77f0b97fa3a629b0",
+      "martian/36dbd11db844c415"
+    ],
+    "scope": "Compare main patch-only review prompt and no-tool request behavior against commit 543c5c3 repository/tool-enabled review behavior. This estimates the bundled change, not file reading alone. Reviewer Sol high, judge Sol high with the same Astra rule. Existing with-tools review/judgment records are reused. Full campaign remains paused.",
+    "overlay_sha256": "a8918b28b5af33832ddf96f209d573d3779d0b4b547c072ab109c29932ac4dbf",
+    "main_buildPrompt_unchanged": true,
+    "main_binary_sha256": "900e550958a04c9c59219b07562fecfce19b56f64d92391b2a0d76ccb77cfe5d",
+    "main_settings": {
+      "cohort": "evaluation",
+      "reviewer_prompt_hash": "0612d2c75f7af2b5dc5a1ca40ee18640a0bc8ace8fbbea23178943979a66d1d7",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "judge": "gpt-5.6-sol",
+      "astra": "gpt-6-astra",
+      "binary_hash": "900e550958a04c9c59219b07562fecfce19b56f64d92391b2a0d76ccb77cfe5d",
+      "manifest_hash": "5964fd0cefbd0d7233bdd40fab0e59295591503907fcd6c9fa15747b8704a39c",
+      "judge_prompt_hash": "f96bb4db4e819f2fb7fca4f8bf15b2ef9e6388f18d2cdbf9683f3c46c2987b1f",
+      "repeat": 0
+    },
+    "with_tools_settings": {
+      "cohort": "evaluation",
+      "reviewer_prompt_hash": "73eb45bd553944bfb34121647fc284aad09e716febe1303993d368ec5e9d234d",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "judge": "gpt-5.6-sol",
+      "astra": "gpt-6-astra",
+      "binary_hash": "2b64632c2c562325bdd0f6dc1ba2e685019a5735d65689d26de076addcfdfbb3",
+      "manifest_hash": "2ac6fa7b3709d45a3b4bbf26067c1699d021ca7887ab1aac378ff01b5528888b",
+      "judge_prompt_hash": "f96bb4db4e819f2fb7fca4f8bf15b2ef9e6388f18d2cdbf9683f3c46c2987b1f",
+      "repeat": 0
+    },
+    "validation": [
+      "go test -race ./... passed in main compatibility worktree",
+      "go vet ./... passed in main compatibility worktree",
+      "main buildPrompt byte-for-byte unchanged",
+      "mock subscription request has no tools and makes one request",
+      "unexpected reviewer tool calls are rejected without execution",
+      "model, effort, judge, adjudicator, judge prompt and repeat match saved run",
+      "All paired counts, precision, recall and F2 agree with native Go reports",
+      "All ten selected cases retain the original run's pins, reference labels and cohort"
+    ],
+    "case_pins": [
+      {
+        "id": "martian/735a5f3ab092d616",
+        "url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3",
+        "repo": "code-review-benchmark/discourse__discourse-graphite__coderabbit__PR3__20260122",
+        "base": "e25638dab0d4b98f99c8fe8976ccaae8f4fb9db3",
+        "head": "5f8a130277dbddc95d133cd2832be639baf89213"
+      },
+      {
+        "id": "martian/a04e7253d962dbf6",
+        "url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7",
+        "repo": "code-review-benchmark/discourse__discourse-graphite__coderabbit__PR7__20260122",
+        "base": "7554b5e3c458dc79b591d5e874e79ab10cf30c2f",
+        "head": "d38c4d5f7443223c81529c22470293771baf9f38"
+      },
+      {
+        "id": "martian/e0f66e47c73fddbc",
+        "url": "https://github.com/calcom/cal.com/pull/10967",
+        "repo": "code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR10967__20260122",
+        "base": "a308075bc39b77ed7059b0cae9d443d669a7bf98",
+        "head": "de628295646d0848226618108a52f2f1e5d04ac0"
+      },
+      {
+        "id": "martian/fb78fbfca4ac3f27",
+        "url": "https://github.com/keycloak/keycloak/pull/33832",
+        "repo": "code-review-benchmark/keycloak__keycloak__coderabbit__PR33832__20260122",
+        "base": "10aca5552314d6e5c9226f3c6d0107861c38c693",
+        "head": "79d11c4890cc4792e3dc3535af59e4e5f7a2739d"
+      },
+      {
+        "id": "martian/1ff10dc6e21f8d66",
+        "url": "https://github.com/grafana/grafana/pull/79265",
+        "repo": "code-review-benchmark/grafana__grafana__coderabbit__PR79265__20260122",
+        "base": "50f4e78a39914711d0d231a501ba215becf17ebc",
+        "head": "bbd8c507cdf56f6b884373809e0b24abd4a2353d"
+      },
+      {
+        "id": "martian/24d467782874810d",
+        "url": "https://github.com/grafana/grafana/pull/106778",
+        "repo": "code-review-benchmark/grafana__grafana__coderabbit__PR106778__20260122",
+        "base": "47e5bd23163e6037fc0741068ac78930bba2769f",
+        "head": "8df850371034b73dc4dd9908cc30fa09f12a1f97"
+      },
+      {
+        "id": "martian/5c5505e00ad9099f",
+        "url": "https://github.com/getsentry/sentry/pull/80528",
+        "repo": "code-review-benchmark/sentry__sentry__coderabbit__PR80528__20260122",
+        "base": "0cfc28e76ddc986d2d89dd9b9f63ee916a18a5f9",
+        "head": "dcdcadb771128e79259cc9eff9c70c38fc597976"
+      },
+      {
+        "id": "martian/e125545e1c3b7347",
+        "url": "https://github.com/keycloak/keycloak/pull/32918",
+        "repo": "code-review-benchmark/keycloak__keycloak__coderabbit__PR32918__20260122",
+        "base": "272cfc68dcc88615396ae62ed1571918e9c58ad3",
+        "head": "e944e2acf1e64421860a8e827f93ad06c169621b"
+      },
+      {
+        "id": "martian/77f0b97fa3a629b0",
+        "url": "https://github.com/calcom/cal.com/pull/14943",
+        "repo": "code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR14943__20260122",
+        "base": "917c7b0764f4c6bfdca95db2c5f73dbfdbe11757",
+        "head": "c790227e0cda780e6fea9bb03af27948d9e286b9"
+      },
+      {
+        "id": "martian/36dbd11db844c415",
+        "url": "https://github.com/getsentry/sentry/pull/93824",
+        "repo": "code-review-benchmark/sentry__sentry__coderabbit__PR93824__20260122",
+        "base": "de11fb0166a7244115bb066edd65ec0d6b7e365c",
+        "head": "3162ad68a5c87666788b27a44eb31235025091a9"
+      }
+    ],
+    "benchmark_sources": {
+      "martian": "e616e849755441da38f18bf3adba2c9583b03803 sha256:60fe361f1430ce3d55bf85d2ceba30205c6a207eb2c49447a2b527e23718d5ed MIT",
+      "martian/03516b976610202d/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR94942__20260122/pull/1",
+      "martian/086eb48f4881539f/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR90939__20260122/pull/1",
+      "martian/0f4dee815559cc5f/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR1__20260122/pull/1",
+      "martian/118c8d30ab724925/snapshot": "https://github.com/code-review-benchmark/sentry__sentry__coderabbit__PR95633__20260122/pull/1",
+      "martian/1ccdfad177096a0c/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR103633__20260122/pull/1",
+      "martian/1ff10dc6e21f8d66/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR79265__20260122/pull/1",
+      "martian/24d467782874810d/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR106778__20260122/pull/1",
+      "martian/2979e65c2022e123/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR37634__20260122/pull/1",
+      "martian/36dbd11db844c415/snapshot": "https://github.com/code-review-benchmark/sentry__sentry__coderabbit__PR93824__20260122/pull/1",
+      "martian/3beb48df8f0dce6f/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR10__20260122/pull/1",
+      "martian/3c6bf37b7f3857a6/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR36880__20260122/pull/1",
+      "martian/454655f78ed4669c/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR14740__20260122/pull/1",
+      "martian/4b01575d7512c444/snapshot": "https://github.com/code-review-benchmark/sentry__sentry-greptile__coderabbit__PR5__20260122/pull/1",
+      "martian/532a700f35a1acd6/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR7232__20260122/pull/1",
+      "martian/56a2f3185b13d996/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR22532__20260122/pull/1",
+      "martian/5c5505e00ad9099f/snapshot": "https://github.com/code-review-benchmark/sentry__sentry__coderabbit__PR80528__20260122/pull/1",
+      "martian/5fbe9616194b2b33/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR2__20260122/pull/1",
+      "martian/5fefa302743de5b9/snapshot": "https://github.com/code-review-benchmark/sentry__sentry-greptile__coderabbit__PR3__20260122/pull/1",
+      "martian/6a3e69fb7574c732/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR9__20260122/pull/1",
+      "martian/731fa2897296f9d7/snapshot": "https://github.com/code-review-benchmark/sentry__sentry__coderabbit__PR80168__20260122/pull/1",
+      "martian/735a5f3ab092d616/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR3__20260122/pull/1",
+      "martian/74710117cb77a465/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR76186__20260122/pull/1",
+      "martian/77f0b97fa3a629b0/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR14943__20260122/pull/1",
+      "martian/800af76fcf67fd6d/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR8330__20260122/pull/1",
+      "martian/80de62a20a370a12/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR90045__20260122/pull/1",
+      "martian/84957e2bf029e789/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR4__20260122/pull/1",
+      "martian/93109beb71eded32/snapshot": "https://github.com/code-review-benchmark/sentry__sentry-greptile__coderabbit__PR1__20260122/pull/1",
+      "martian/9694dc5640674ccb/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR37429__20260122/pull/1",
+      "martian/97eebca1b1e64376/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR6__20260122/pull/1",
+      "martian/98442a06658ac4a2/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR10600__20260122/pull/1",
+      "martian/9a950d90c1910805/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR5__20260122/pull/1",
+      "martian/9c23e8296f3e728a/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR8087__20260122/pull/1",
+      "martian/a04e7253d962dbf6/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR7__20260122/pull/1",
+      "martian/a24dbb3cc02644f8/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR80329__20260122/pull/1",
+      "martian/a4e338638593af15/snapshot": "https://github.com/code-review-benchmark/discourse__discourse-graphite__coderabbit__PR8__20260122/pull/1",
+      "martian/af324109a0262358/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak-greptile__coderabbit__PR1__20260122/pull/1",
+      "martian/b30a8ea3954c995f/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR97529__20260122/pull/1",
+      "martian/b7f567acb6b6d436/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR36882__20260122/pull/1",
+      "martian/benchmark_data.json": "https://raw.githubusercontent.com/withmartian/code-review-benchmark/e616e849755441da38f18bf3adba2c9583b03803/offline/results/benchmark_data.json sha256:60fe361f1430ce3d55bf85d2ceba30205c6a207eb2c49447a2b527e23718d5ed",
+      "martian/c3b1c314ee482938/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR40940__20260122/pull/1",
+      "martian/d0d4422f9e55bed3/snapshot": "https://github.com/code-review-benchmark/grafana__grafana__coderabbit__PR107534__20260122/pull/1",
+      "martian/d522975328209e0b/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR38446__20260122/pull/1",
+      "martian/dc17f088e26d6e95/snapshot": "https://github.com/code-review-benchmark/sentry__sentry-greptile__coderabbit__PR2__20260122/pull/1",
+      "martian/e0f66e47c73fddbc/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR10967__20260122/pull/1",
+      "martian/e125545e1c3b7347/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR32918__20260122/pull/1",
+      "martian/e30cc1b5ffc9e6a0/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR37038__20260122/pull/1",
+      "martian/e55cdc5b2eb668a8/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR22345__20260122/pull/1",
+      "martian/eaf4b87db9d84551/snapshot": "https://github.com/code-review-benchmark/sentry__sentry__coderabbit__PR77754__20260122/pull/1",
+      "martian/edc48265153a8bcc/snapshot": "https://github.com/code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR11059__20260122/pull/1",
+      "martian/f0a5b2104076c53d/snapshot": "https://github.com/code-review-benchmark/sentry__sentry__coderabbit__PR67876__20260122/pull/1",
+      "martian/fb78fbfca4ac3f27/snapshot": "https://github.com/code-review-benchmark/keycloak__keycloak__coderabbit__PR33832__20260122/pull/1",
+      "martian/openai_gpt-5.2/candidates.json": "https://raw.githubusercontent.com/withmartian/code-review-benchmark/e616e849755441da38f18bf3adba2c9583b03803/offline/results/openai_gpt-5.2/candidates.json sha256:9127778b56f34e856381bca7ef2ee297382e4593378b5ea4f3b11c79d57637e8",
+      "martian/openai_gpt-5.2/dedup_groups.json": "https://raw.githubusercontent.com/withmartian/code-review-benchmark/e616e849755441da38f18bf3adba2c9583b03803/offline/results/openai_gpt-5.2/dedup_groups.json sha256:aaab19b344e7a56e087e688f6a53f55c4b49f57e6dbf13108821f997317ee529",
+      "martian/openai_gpt-5.2/evaluations.json": "https://raw.githubusercontent.com/withmartian/code-review-benchmark/e616e849755441da38f18bf3adba2c9583b03803/offline/results/openai_gpt-5.2/evaluations.json sha256:5f32585498e362f5d1da45f8eacf2e678bb0044378ea47887744a9c729bc3ebb",
+      "personal": "public GitHub PR inventory for divyangchauhan; frozen at 2026-09-19T18:40:44Z",
+      "swe-prbench": "b87f5797aef3ed2c3153bb1304ea4d801d36ba6e sha256:a58e1f713533f6bc260a93f6e234b85acd16a77f55a756893694b96495eb43cd CC-BY-4.0; attribution: FoundryHQ-AI SWE-PRBench",
+      "comparison_selection": "First two completed DiffVouch cases per project in frozen manifest order; selected by completion status and project only, not review score."
+    },
+    "record_sha256": {
+      "martian/735a5f3ab092d616": {
+        "main": "1dbfe34dbf60c44c3d0f76951cf4abd6195f7e08bc24ac129c16c7ece8726931",
+        "with_tools": "d89a305708a6fc5e0f2269488d721f41aa316973acee495022ce6488dcdc6ea4"
+      },
+      "martian/a04e7253d962dbf6": {
+        "main": "4d73111ca0c253f021e7948eeadbeaaea4c50f27b24fb500d839a91929c08834",
+        "with_tools": "7df7ad10629a1784833004b836182232c4a816442df92dbe765dbe94f36c741d"
+      },
+      "martian/e0f66e47c73fddbc": {
+        "main": "9b1d9f069be59c5c7dd27ada5ab29c16311d869da8ac74536cb6428d7f94ef6b",
+        "with_tools": "fb35d736f3bd8e7ed46c3c69c6f83ab46b4b1b2fb9ace8c655bb65a5aa88c255"
+      },
+      "martian/fb78fbfca4ac3f27": {
+        "main": "a846dd7c3d4e92926244934798fa4b34d5082f2ee79c4aae3f999df90fd4ca41",
+        "with_tools": "b78697e88076fc43c52e272f8bc5a228008ae5df7c666d3454e5bdef35ec9def"
+      },
+      "martian/1ff10dc6e21f8d66": {
+        "main": "7d1ee09b10cfa9c427531b27265fc67e964832fec3ddc2f79946ab15ef3ca9c7",
+        "with_tools": "cc771c6fd480e4aab9a019af4e2e7eb54b642633d0d1e86e20a1b1ae6fbc980e"
+      },
+      "martian/24d467782874810d": {
+        "main": "913e505c94eb9094711fc659ec8556b2fe4229c6cbdddb18b9f7377afc851f13",
+        "with_tools": "ab9f3a1f333bed4cf8cccd71d2546ee92a58d357aff7a133e78880ed1d5bed23"
+      },
+      "martian/5c5505e00ad9099f": {
+        "main": "024afe651647090a86dd6fa64ac9e8961bc3bf7b1816b2b76c3aa7d3d1aaaba0",
+        "with_tools": "4903b8e5ee40db702608697f212d4e4c0bbe8860d1ced9d3a54d46d5cf199d8a"
+      },
+      "martian/e125545e1c3b7347": {
+        "main": "44c7018eb224919b9a897e872f7c619717ba9bceb20161138d3a46215a34769a",
+        "with_tools": "e77c4ee1b88a656f9cf7055945b5316346ace999595a1dede4473d1de74d0cee"
+      },
+      "martian/77f0b97fa3a629b0": {
+        "main": "9bdcf688d33c498f427c847ae8cba84d3a4da473842b2d66cf7edf11a1eae769",
+        "with_tools": "27fa98a6fa29a6025fdbd34e082056d6749f72bf1299240bf50a849a867c51fe"
+      },
+      "martian/36dbd11db844c415": {
+        "main": "2547e4e348010f1c62d707704e75d2fead69ab98541b97c7d3392f99889f8b0d",
+        "with_tools": "bb1f9d1ec62eb2eba06275f0aab79570c2083f911e3e53f29401b8bcdcf6a87b"
+      }
+    }
+  },
+  "comparison": {
+    "main_run": "/home/ubuntu/devel/DiffLoom/.diffvouch-evals/main-10/runs/e849423ae32486c1",
+    "main_states": {
+      "complete": 10
+    },
+    "paired_cases": 10,
+    "cases": [
+      {
+        "case_id": "martian/735a5f3ab092d616",
+        "url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/3",
+        "repo": "code-review-benchmark/discourse__discourse-graphite__coderabbit__PR3__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 2,
+          "reference_matches": 2,
+          "missed_references": 1
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 3,
+          "invalid": 1,
+          "unmatched_claims": 2,
+          "reference_matches": 2,
+          "missed_references": 1
+        },
+        "gained_references": [],
+        "lost_references": [],
+        "main_judge": "gpt-5.6-sol",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/a04e7253d962dbf6",
+        "url": "https://github.com/ai-code-review-evaluation/discourse-graphite/pull/7",
+        "repo": "code-review-benchmark/discourse__discourse-graphite__coderabbit__PR7__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 3,
+          "unmatched_claims": 1,
+          "reference_matches": 2,
+          "missed_references": 1
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 5,
+          "unmatched_claims": 2,
+          "reference_matches": 2,
+          "missed_references": 1
+        },
+        "gained_references": [],
+        "lost_references": [],
+        "main_judge": "gpt-6-astra",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/e0f66e47c73fddbc",
+        "url": "https://github.com/calcom/cal.com/pull/10967",
+        "repo": "code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR10967__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 7,
+          "unmatched_claims": 6,
+          "reference_matches": 1,
+          "missed_references": 4
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 3,
+          "unmatched_claims": 2,
+          "reference_matches": 1,
+          "missed_references": 4
+        },
+        "gained_references": [
+          "g3"
+        ],
+        "lost_references": [
+          "g4"
+        ],
+        "main_judge": "gpt-6-astra",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/fb78fbfca4ac3f27",
+        "url": "https://github.com/keycloak/keycloak/pull/33832",
+        "repo": "code-review-benchmark/keycloak__keycloak__coderabbit__PR33832__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 5,
+          "unmatched_claims": 4,
+          "reference_matches": 0,
+          "missed_references": 3
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 2,
+          "unmatched_claims": 1,
+          "reference_matches": 0,
+          "missed_references": 3
+        },
+        "gained_references": [],
+        "lost_references": [],
+        "main_judge": "gpt-6-astra",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/1ff10dc6e21f8d66",
+        "url": "https://github.com/grafana/grafana/pull/79265",
+        "repo": "code-review-benchmark/grafana__grafana__coderabbit__PR79265__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 1,
+          "reference_matches": 1,
+          "missed_references": 4
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 3,
+          "unmatched_claims": 1,
+          "reference_matches": 2,
+          "missed_references": 3
+        },
+        "gained_references": [
+          "g5"
+        ],
+        "lost_references": [],
+        "main_judge": "gpt-5.6-sol",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/24d467782874810d",
+        "url": "https://github.com/grafana/grafana/pull/106778",
+        "repo": "code-review-benchmark/grafana__grafana__coderabbit__PR106778__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 4,
+          "unmatched_claims": 3,
+          "reference_matches": 1,
+          "missed_references": 1
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 7,
+          "unmatched_claims": 5,
+          "reference_matches": 2,
+          "missed_references": 0
+        },
+        "gained_references": [
+          "g2"
+        ],
+        "lost_references": [],
+        "main_judge": "gpt-6-astra",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/5c5505e00ad9099f",
+        "url": "https://github.com/getsentry/sentry/pull/80528",
+        "repo": "code-review-benchmark/sentry__sentry__coderabbit__PR80528__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 1,
+          "reference_matches": 1,
+          "missed_references": 1
+        },
+        "with_tools": {
+          "cases": 1,
+          "reference_matches": 0,
+          "missed_references": 2
+        },
+        "gained_references": [],
+        "lost_references": [
+          "g1"
+        ],
+        "main_judge": "gpt-5.6-sol",
+        "with_tools_judge": "gpt-5.6-sol"
+      },
+      {
+        "case_id": "martian/e125545e1c3b7347",
+        "url": "https://github.com/keycloak/keycloak/pull/32918",
+        "repo": "code-review-benchmark/keycloak__keycloak__coderabbit__PR32918__20260122",
+        "main": {
+          "cases": 1,
+          "invalid": 1,
+          "unmatched_claims": 1,
+          "valid": 1,
+          "reference_matches": 1,
+          "missed_references": 1
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 2,
+          "unmatched_claims": 1,
+          "reference_matches": 1,
+          "missed_references": 1
+        },
+        "gained_references": [],
+        "lost_references": [],
+        "main_judge": "gpt-5.6-sol",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/77f0b97fa3a629b0",
+        "url": "https://github.com/calcom/cal.com/pull/14943",
+        "repo": "code-review-benchmark/cal_dot_com__cal.com__coderabbit__PR14943__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 1,
+          "reference_matches": 1,
+          "missed_references": 1
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 3,
+          "unmatched_claims": 1,
+          "reference_matches": 2,
+          "missed_references": 0
+        },
+        "gained_references": [
+          "g1"
+        ],
+        "lost_references": [],
+        "main_judge": "gpt-5.6-sol",
+        "with_tools_judge": "gpt-6-astra"
+      },
+      {
+        "case_id": "martian/36dbd11db844c415",
+        "url": "https://github.com/getsentry/sentry/pull/93824",
+        "repo": "code-review-benchmark/sentry__sentry__coderabbit__PR93824__20260122",
+        "main": {
+          "cases": 1,
+          "valid": 3,
+          "unmatched_claims": 1,
+          "reference_matches": 3,
+          "missed_references": 2
+        },
+        "with_tools": {
+          "cases": 1,
+          "valid": 3,
+          "unmatched_claims": 1,
+          "reference_matches": 3,
+          "missed_references": 2
+        },
+        "gained_references": [],
+        "lost_references": [],
+        "main_judge": "gpt-6-astra",
+        "with_tools_judge": "gpt-6-astra"
+      }
+    ],
+    "main": {
+      "cases": 10,
+      "reference_matches": 13,
+      "missed_references": 19,
+      "unmatched_claims": 16,
+      "valid": 28,
+      "invalid": 1,
+      "unresolved": 0,
+      "duplicates": 0,
+      "valid_maintainability": 0,
+      "f2": 0.4140127388535032,
+      "precision": 0.4482758620689655,
+      "recall": 0.40625
+    },
+    "with_tools": {
+      "cases": 10,
+      "reference_matches": 15,
+      "missed_references": 17,
+      "unmatched_claims": 16,
+      "valid": 31,
+      "invalid": 1,
+      "unresolved": 0,
+      "duplicates": 0,
+      "valid_maintainability": 0,
+      "f2": 0.4716981132075472,
+      "precision": 0.4838709677419355,
+      "recall": 0.46875
+    },
+    "f2_delta": 0.05768537435404397,
+    "paired_pr_95_interval": [
+      -0.05593262946204125,
+      0.15243902439024387
+    ],
+    "bootstrap": "Python random.Random(1), 2000 paired PR draws; conditional on frozen judgments, ignores repository dependence and judge error"
+  }
+}

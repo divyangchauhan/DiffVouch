@@ -45,6 +45,13 @@ func TestPromptSeparatesTrustedPolicyFromPatch(t *testing.T) {
 	}
 }
 
+func TestPromptAllowsRepositoryInspection(t *testing.T) {
+	prompt := buildPrompt("+change", 1, 1, nil, nil)
+	if !stringContains(prompt.System, "shell/Bash commands enabled") || !stringContains(prompt.System, "Run relevant commands and tests") || stringContains(prompt.System, "Do not request tools") || stringContains(prompt.System, "no local tools") {
+		t.Fatalf("review cannot inspect repository: %s", prompt.System)
+	}
+}
+
 func TestProviderPatchRedactionIsDisabled(t *testing.T) {
 	patch := "+password=visible-to-provider\n+-----BEGIN PRIVATE KEY-----\n"
 	prepared, redactions := prepareProviderPatch(patch)

@@ -6,10 +6,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/divyangchauhan/DiffVouch/internal/chatgpt"
 	"github.com/divyangchauhan/DiffVouch/internal/config"
 	"github.com/divyangchauhan/DiffVouch/internal/dv"
 	"github.com/divyangchauhan/DiffVouch/internal/gitdiff"
@@ -29,7 +31,7 @@ func Execute(version string) error {
 	}
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
-	root.AddCommand(reviewCommand(), authCommand(), githubCommand())
+	root.AddCommand(reviewCommand(), authCommand(), githubCommand(), evalCommand())
 	return root.Execute()
 }
 
@@ -50,7 +52,7 @@ func reviewCommand() *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error { return runReview(command, flags) },
 	}
 	command.Flags().StringVar(&flags.provider, "provider", "", "provider: codex or claude (required)")
-	command.Flags().StringVar(&flags.transport, "transport", "", "transport: cli or api (default cli)")
+	command.Flags().StringVar(&flags.transport, "transport", "", "transport: cli, api, or subscription (OpenAI only; default cli)")
 	command.Flags().StringVar(&flags.model, "model", "", "provider model override")
 	command.Flags().StringVar(&flags.effort, "effort", "", "reasoning effort: low, medium, high, xhigh, max, or ultra")
 	command.Flags().StringVar(&flags.base, "base", "", "local Git ref to compare against")
@@ -77,8 +79,11 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 	if flags.provider != "codex" && flags.provider != "claude" {
 		return dv.New(dv.ExitArguments, "--provider must be codex or claude")
 	}
-	if flags.transport != "" && flags.transport != "cli" && flags.transport != "api" {
-		return dv.New(dv.ExitArguments, "--transport must be cli or api")
+	if flags.transport != "" && flags.transport != "cli" && flags.transport != "api" && flags.transport != "subscription" {
+		return dv.New(dv.ExitArguments, "--transport must be cli, api, or subscription")
+	}
+	if flags.transport == "subscription" && flags.provider != "codex" {
+		return dv.New(dv.ExitArguments, "subscription transport supports only --provider codex")
 	}
 	if flags.format != "terminal" && flags.format != "json" {
 		return dv.New(dv.ExitArguments, "--format must be terminal or json")
@@ -206,13 +211,35 @@ func writeReviewOutput(command *cobra.Command, result model.ReviewResult, flags 
 
 func authCommand() *cobra.Command {
 	command := &cobra.Command{Use: "auth", Short: "Manage AI provider authentication"}
-	command.AddCommand(authLoginCommand(), authStatusCommand(), authSetKeyCommand(), authRemoveKeyCommand())
+	command.AddCommand(authLoginCommand(), authStatusCommand(), authSetKeyCommand(), authRemoveKeyCommand(), authLogoutCommand())
 	return command
 }
 
 func authLoginCommand() *cobra.Command {
 	var device bool
+	var transport, storage string
 	command := &cobra.Command{Use: "login <openai|codex|claude>", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
+		if transport == "subscription" {
+			if args[0] != "openai" && args[0] != "codex" {
+				return dv.New(dv.ExitArguments, "subscription login supports only openai or codex")
+			}
+			ctx, stop := signal.NotifyContext(command.Context(), os.Interrupt)
+			defer stop()
+			if err := chatgpt.Login(ctx, nil, storage, func(url, code string) error {
+				_, err := fmt.Fprintf(command.OutOrStdout(), "Open %s and enter code %s to sign in to ChatGPT.\nWaiting for authorization...\n", url, code)
+				return err
+			}); err != nil {
+				return dv.Wrap(dv.ExitProvider, "ChatGPT subscription login failed", err)
+			}
+			fmt.Fprintln(command.OutOrStdout(), "Signed in to ChatGPT for native subscription reviews.")
+			return nil
+		}
+		if transport != "cli" {
+			return dv.New(dv.ExitArguments, "login transport must be cli or subscription")
+		}
+		if command.Flags().Changed("storage") {
+			return dv.New(dv.ExitArguments, "--storage requires --transport subscription")
+		}
 		var name string
 		var commandArgs []string
 		if args[0] == "openai" || args[0] == "codex" {
@@ -237,18 +264,35 @@ func authLoginCommand() *cobra.Command {
 		}
 		return nil
 	}}
-	command.Flags().BoolVar(&device, "device", false, "use Codex device-code login")
+	command.Flags().BoolVar(&device, "device", false, "use device-code login (always used by subscription transport)")
+	command.Flags().StringVar(&transport, "transport", "cli", "login transport: cli or subscription")
+	command.Flags().StringVar(&storage, "storage", "auto", "native subscription secret storage: auto, keyring, or file")
 	return command
 }
 
 func authStatusCommand() *cobra.Command {
-	return &cobra.Command{Use: "status [openai|codex|claude|all]", Args: cobra.MaximumNArgs(1), RunE: func(command *cobra.Command, args []string) error {
+	var transport string
+	command := &cobra.Command{Use: "status [openai|codex|claude|all]", Args: cobra.MaximumNArgs(1), RunE: func(command *cobra.Command, args []string) error {
 		requested := "all"
 		if len(args) == 1 {
 			requested = args[0]
 		}
 		if !contains([]string{"openai", "codex", "claude", "all"}, requested) {
 			return dv.New(dv.ExitArguments, "unknown provider")
+		}
+		if transport == "subscription" {
+			if requested == "claude" {
+				return dv.New(dv.ExitArguments, "subscription status supports only openai or codex")
+			}
+			status, err := chatgpt.Status()
+			if err != nil {
+				return dv.Wrap(dv.ExitGate, "ChatGPT native subscription is not ready", err)
+			}
+			fmt.Fprintf(command.OutOrStdout(), "ChatGPT native subscription: %s\n", status)
+			return nil
+		}
+		if transport != "cli" {
+			return dv.New(dv.ExitArguments, "status transport must be cli or subscription")
 		}
 		providers := []string{"openai", "claude"}
 		if requested != "all" {
@@ -277,13 +321,40 @@ func authStatusCommand() *cobra.Command {
 			fmt.Fprintf(command.OutOrStdout(), "%s: %s%s\n", label, ternary(ready, "ready", "not ready"), detail)
 			_, apiReady := global.APIKeys[apiName]
 			fmt.Fprintf(command.OutOrStdout(), "%s API key: %s\n", apiName, ternary(apiReady, "configured", "not configured"))
-			failed = failed || !(ready || apiReady)
+			nativeReady := false
+			if name == "openai" {
+				status, statusErr := chatgpt.Status()
+				nativeReady = statusErr == nil
+				if !nativeReady {
+					status = "not ready"
+				}
+				fmt.Fprintf(command.OutOrStdout(), "ChatGPT native subscription: %s\n", status)
+			}
+			failed = failed || !(ready || apiReady || nativeReady)
 		}
 		if failed {
 			return dv.New(dv.ExitGate, "no configured authentication method for one or more providers")
 		}
 		return nil
 	}}
+	command.Flags().StringVar(&transport, "transport", "cli", "status transport: cli or subscription (does not invoke provider CLIs)")
+	return command
+}
+
+func authLogoutCommand() *cobra.Command {
+	var transport string
+	command := &cobra.Command{Use: "logout <openai|codex>", Short: "Remove the native ChatGPT subscription session", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
+		if (args[0] != "openai" && args[0] != "codex") || transport != "subscription" {
+			return dv.New(dv.ExitArguments, "logout supports openai or codex with --transport subscription")
+		}
+		if err := chatgpt.Logout(); err != nil {
+			return err
+		}
+		fmt.Fprintln(command.OutOrStdout(), "Removed the native ChatGPT subscription session.")
+		return nil
+	}}
+	command.Flags().StringVar(&transport, "transport", "subscription", "logout transport: subscription")
+	return command
 }
 
 func authSetKeyCommand() *cobra.Command {

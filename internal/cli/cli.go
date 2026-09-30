@@ -43,6 +43,7 @@ type reviewFlags struct {
 	excludes                                                                   []string
 	failBelow                                                                  float64
 	maxDiffBytes                                                               int
+	chunkTokens                                                                int
 }
 
 func reviewCommand() *cobra.Command {
@@ -68,6 +69,7 @@ func reviewCommand() *cobra.Command {
 	command.Flags().Float64Var(&flags.failBelow, "fail-below", 0, "fail when rating is below this value")
 	command.Flags().StringVar(&flags.failSeverity, "fail-on-severity", "", "fail at or above this severity")
 	command.Flags().IntVar(&flags.maxDiffBytes, "max-diff-bytes", 0, "override diff safety limit")
+	command.Flags().IntVar(&flags.chunkTokens, "chunk-tokens", 0, "override diff chunk token limit (default 50000; excludes prompt and tool context)")
 	command.Flags().StringVar(&flags.configPath, "config", "", "explicit repository config path")
 	command.Flags().BoolVar(&flags.noColor, "no-color", false, "disable color output")
 	command.Flags().BoolVar(&flags.verbose, "verbose", false, "enable verbose diagnostics")
@@ -99,6 +101,9 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 	}
 	if flags.maxDiffBytes != 0 && flags.maxDiffBytes < 10_000 {
 		return dv.New(dv.ExitArguments, "--max-diff-bytes must be at least 10000")
+	}
+	if command.Flags().Changed("chunk-tokens") && flags.chunkTokens < 1000 {
+		return dv.New(dv.ExitArguments, "--chunk-tokens must be at least 1000")
 	}
 	var failBelow *float64
 	if command.Flags().Changed("fail-below") {
@@ -150,7 +155,7 @@ func runReview(command *cobra.Command, flags *reviewFlags) error {
 		ProviderName: flags.provider, Transport: flags.transport, Model: flags.model, Effort: flags.effort,
 		Base: base, CommittedOnly: flags.committedOnly || flags.pr > 0 || flags.publish,
 		StagedOnly: flags.stagedOnly, Excludes: flags.excludes, ConfigPath: flags.configPath,
-		MaxDiffBytes: flags.maxDiffBytes, FailBelow: failBelow, FailOnSeverity: flags.failSeverity,
+		MaxDiffBytes: flags.maxDiffBytes, ChunkTokens: flags.chunkTokens, FailBelow: failBelow, FailOnSeverity: flags.failSeverity,
 		PublicationRequested: flags.publish, Root: repoRoot, Diagnostics: command.ErrOrStderr(),
 	})
 	if err != nil {

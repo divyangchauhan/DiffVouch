@@ -103,6 +103,29 @@ type ReviewResult struct {
 	Files                FilesSummary `json:"files"`
 	Gate                 Gate         `json:"gate"`
 	Publication          Publication  `json:"publication"`
+	Tokens               *TokenReport `json:"tokens,omitempty"`
+}
+
+// TokenUsage comes from the provider, never from the review model's prose.
+// Cached input is part of input; reasoning is part of output, not extra tokens.
+type TokenUsage struct {
+	InputTokens       int `json:"inputTokens"`
+	OutputTokens      int `json:"outputTokens"`
+	CachedInputTokens int `json:"cachedInputTokens"`
+	ReasoningTokens   int `json:"reasoningTokens"`
+}
+
+type ChunkTokens struct {
+	DiffTokens       int           `json:"diffTokens"`
+	PromptTextTokens int           `json:"promptTextTokens"`
+	Requests         []*TokenUsage `json:"requests"`
+}
+
+type TokenReport struct {
+	Tokenizer        string        `json:"tokenizer"`
+	Estimated        bool          `json:"estimated"`
+	ChunkLimitTokens int           `json:"chunkLimitTokens,omitempty"`
+	Chunks           []ChunkTokens `json:"chunks"`
 }
 
 func NewReviewID() string {

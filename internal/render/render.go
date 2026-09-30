@@ -49,6 +49,9 @@ func Terminal(result model.ReviewResult) string {
 		fmt.Fprintf(&output, " using %s", result.Provider.Model)
 	}
 	output.WriteString(".\n")
+	if result.Tokens != nil {
+		writeTokens(&output, result.Tokens)
+	}
 	if result.Files.Redactions > 0 {
 		fmt.Fprintf(&output, "%d potential secret(s) were redacted before provider submission.\n", result.Files.Redactions)
 	}
@@ -69,6 +72,44 @@ func Terminal(result model.ReviewResult) string {
 		output.WriteString("Nothing was published.\n")
 	}
 	return output.String()
+}
+
+func writeTokens(output *strings.Builder, report *model.TokenReport) {
+	label := "local text count"
+	if report.Estimated {
+		label = "estimated for this model"
+	}
+	fmt.Fprintf(output, "Tokens (%s, %s):\n", sanitize.TerminalText(report.Tokenizer), label)
+	if report.ChunkLimitTokens > 0 {
+		fmt.Fprintf(output, "  Diff chunk limit: %d tokens.\n", report.ChunkLimitTokens)
+	}
+	var input, cached, generated, reasoning, peak, reported, unknown int
+	for i, chunk := range report.Chunks {
+		fmt.Fprintf(output, "  Chunk %d: %d diff / %d prompt text tokens.\n", i+1, chunk.DiffTokens, chunk.PromptTextTokens)
+		if len(chunk.Requests) == 0 {
+			unknown++
+		}
+		for _, usage := range chunk.Requests {
+			if usage == nil {
+				unknown++
+				continue
+			}
+			reported++
+			input += usage.InputTokens
+			cached += usage.CachedInputTokens
+			generated += usage.OutputTokens
+			reasoning += usage.ReasoningTokens
+			peak = max(peak, usage.InputTokens)
+		}
+	}
+	output.WriteString("  Prompt text excludes tool definitions, output schema, message framing, and later tool context.\n")
+	if reported > 0 {
+		fmt.Fprintf(output, "  Provider-reported peak input: %d tokens. Leave additional room for reasoning and output.\n", peak)
+		fmt.Fprintf(output, "  Usage across %d reported requests: %d input (%d cached), %d output (%d reasoning included).\n", reported, input, cached, generated, reasoning)
+	}
+	if unknown > 0 {
+		output.WriteString("  Provider usage is unavailable for some or all requests; reported totals and peak may be incomplete.\n")
+	}
 }
 
 func filter(findings []model.Finding, blocking bool) []model.Finding {

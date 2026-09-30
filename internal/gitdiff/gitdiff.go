@@ -380,24 +380,60 @@ func uniqueSorted(values []string) []string {
 	return result
 }
 
+// ChunkPatch preserves the legacy byte-based limit.
 func ChunkPatch(patch string, limit int) ([]string, error) {
-	if len([]byte(patch)) <= limit {
+	return chunkPatch(patch, limit, "bytes", func(s string) (int, error) { return len(s), nil })
+}
+
+// ChunkPatchTokens counts complete candidates, including repeated file headers,
+// so tokenizer merges at boundaries cannot make a chunk exceed its limit.
+func ChunkPatchTokens(patch string, limit int, count func(string) (int, error)) ([]string, error) {
+	return chunkPatch(patch, limit, "tokens", count)
+}
+
+func chunkPatch(patch string, limit int, unit string, count func(string) (int, error)) ([]string, error) {
+	if limit <= 0 {
+		return nil, dv.New(dv.ExitArguments, "chunk limit must be positive")
+	}
+	size, err := count(patch)
+	if err != nil {
+		return nil, err
+	}
+	if size <= limit {
 		return []string{patch}, nil
 	}
 	var chunks []string
-	var current strings.Builder
-	for _, section := range SplitFilePatches(patch) {
-		if current.Len() > 0 && current.Len()+len(section) > limit {
-			chunks = append(chunks, current.String())
-			current.Reset()
+	var current string
+	appendPiece := func(piece string) error {
+		size, err := count(current + piece)
+		if err != nil {
+			return err
 		}
-		if len(section) <= limit {
-			current.WriteString(section)
+		if current != "" && size > limit {
+			chunks = append(chunks, current)
+			current = ""
+		}
+		current += piece
+		return nil
+	}
+	for _, section := range SplitFilePatches(patch) {
+		size, err := count(section)
+		if err != nil {
+			return nil, err
+		}
+		if size <= limit {
+			if err := appendPiece(section); err != nil {
+				return nil, err
+			}
 			continue
+		}
+		if current != "" {
+			chunks = append(chunks, current)
+			current = ""
 		}
 		hunkLocation := hunkHeader.FindStringIndex(section)
 		if hunkLocation == nil {
-			return nil, dv.New(dv.ExitCoverage, "a single changed file exceeds the chunk limit")
+			return nil, dv.New(dv.ExitCoverage, fmt.Sprintf("a single changed file exceeds the chunk limit of %d %s", limit, unit))
 		}
 		hunkAt := hunkLocation[0]
 		header := section[:hunkAt]
@@ -408,18 +444,20 @@ func ChunkPatch(patch string, limit int) ([]string, error) {
 				end = hunkStarts[index+1][0]
 			}
 			piece := header + section[hunkAt+location[0]:hunkAt+end]
-			if len(piece) > limit {
-				return nil, dv.New(dv.ExitCoverage, "a single diff hunk exceeds the chunk limit")
+			size, err := count(piece)
+			if err != nil {
+				return nil, err
 			}
-			if current.Len() > 0 && current.Len()+len(piece) > limit {
-				chunks = append(chunks, current.String())
-				current.Reset()
+			if size > limit {
+				return nil, dv.New(dv.ExitCoverage, fmt.Sprintf("a single diff hunk exceeds the chunk limit of %d %s", limit, unit))
 			}
-			current.WriteString(piece)
+			if err := appendPiece(piece); err != nil {
+				return nil, err
+			}
 		}
 	}
-	if current.Len() > 0 {
-		chunks = append(chunks, current.String())
+	if current != "" {
+		chunks = append(chunks, current)
 	}
 	return chunks, nil
 }

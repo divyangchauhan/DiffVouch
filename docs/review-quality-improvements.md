@@ -1,10 +1,12 @@
 # Review quality improvements beyond prompt changes
 
-Research date: 2026-09-21. These are proposed changes; this note does not implement them or resume evaluations.
+Research date: 2026-09-21. The architectural options below are research proposals, not the current implementation plan. The original code observations refer to commit `86fb943`. The larger evaluation campaign remains paused; partial prompt experiments are reported separately.
 
 ## Recommendation
 
-Build a staged review pipeline around the existing model call. The first priority is deterministic context and candidate coverage. The second is evidence-based verification and PR-level synthesis. Static analysis, tests, semantic deduplication, and adaptive compute should feed those stages. Explicit orchestration can enforce context selection and review coverage that the current model-directed tool use does not guarantee.
+Decision on 2026-09-30: keep the original prompt. The experimental expanded prompt was removed from the working implementation at the user's request. Across the same eight completed personal PRs, the original produced 17 accepted claims, the installation-restricted variant produced 16 after the false-positive audit, and the corrected expanded variant produced 15 with one unresolved claim. These small, historical comparisons do not establish that either prompt is generally better. The supporting prompt evaluation and Tarpan retry reports remain local, uncommitted artifacts.
+
+The original instructions in [`buildPrompt`](../internal/review/review.go) permit repository inspection and relevant commands and tests when useful. The expanded workflow remains preserved in frozen experiment sources and reports. No architectural changes are selected here. The [deferred chunk-size experiment](eval-running.md#deferred-task-evaluate-chunk-token-limits) remains paused and will use the selected original prompt unless a later decision changes it.
 
 The ten-PR diagnostic supports this priority but does not prove it. Repository tools raised reference F2 from 41.4% to 47.2%, while the paired 95% interval was [-5.6, +15.2] points. The tool-enabled version still missed 17 of 32 benchmark issues, while the model judge marked only one of its 32 findings invalid. Unmatched claims are benchmark false positives even when the judge finds a real additional issue. These counts make coverage the first hypothesis to test. The small sample and model judge do not establish the cause, and they do not support blanket filtering. No version produced a valid maintainability finding. See [the paired report](eval-main-vs-tools-10.md#main-versus-repository-access-ten-prs).
 
@@ -17,7 +19,7 @@ Research gives useful design precedents, not a guaranteed score increase:
 
 First-party product accounts report similar structures, but they are not controlled comparisons and their quality claims should not be treated as proof. Cursor describes an early eight-pass, majority-vote, validator pipeline, then says its larger gains came from dynamic context and tool use. Anthropic describes parallel detection, verification, severity ranking, and compute that scales with PR complexity. These accounts justify testing those components separately. They do not justify copying a fixed number of passes or filtering every single-pass candidate. [Cursor Bugbot account](https://cursor.com/blog/building-bugbot), [Anthropic Code Review account](https://claude.com/blog/code-review)
 
-## What the current code does
+## What the original research baseline did
 
 - `gitdiff.ChunkPatch` fills byte-limited chunks with whole file sections, then individual hunks when a file is too large. It has no dependency or symbol boundary model. [internal/gitdiff/gitdiff.go lines 383-424](../internal/gitdiff/gitdiff.go#L383-L424)
 - `review.Perform` starts a fresh review for each chunk and concatenates the results. There is no final model pass that reasons across chunk findings or recovers a dependency split between chunks. [internal/review/review.go lines 111-123](../internal/review/review.go#L111-L123)
@@ -28,7 +30,7 @@ First-party product accounts report similar structures, but they are not control
 
 The paused full run `f003bd8b42da24a9` also shows why reliability needs its own workstream. Its local native records contain 81 completed cases and 30 errors: 19 checkout/dataset-patch mismatches, 9 incomplete subscription responses, 1 merge-base reconstruction failure, and 1 stream-read failure. Fixture preparation errors and provider transport errors should not be counted as review misses or mixed into an architectural quality conclusion.
 
-## Ranked implementation plan
+## Architectural options deferred for later evaluation
 
 | Rank | Change | Expected effect | Main risk and control |
 |---:|---|---|---|

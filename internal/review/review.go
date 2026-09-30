@@ -17,6 +17,7 @@ import (
 	"github.com/divyangchauhan/DiffVouch/internal/model"
 	"github.com/divyangchauhan/DiffVouch/internal/provider"
 	"github.com/divyangchauhan/DiffVouch/internal/rating"
+	"github.com/divyangchauhan/DiffVouch/internal/tokens"
 )
 
 type Options struct {
@@ -30,6 +31,7 @@ type Options struct {
 	Excludes             []string
 	ConfigPath           string
 	MaxDiffBytes         int
+	ChunkTokens          int
 	FailBelow            *float64
 	FailOnSeverity       string
 	PublicationRequested bool
@@ -99,11 +101,38 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 		return nil, files, nil
 	}
 	providerPatch, redactions := prepareProviderPatch(collected.Patch)
-	chunks, err := gitdiff.ChunkPatch(providerPatch, repositoryConfig.Review.ChunkBytes)
+	counter, err := tokens.New(selectedModel)
+	if err != nil {
+		return nil, nil, dv.Wrap(dv.ExitProvider, "initialize token counter", err)
+	}
+	chunkLimit := repositoryConfig.Review.ChunkTokens
+	if options.ChunkTokens != 0 {
+		if options.ChunkTokens < 1000 {
+			return nil, nil, dv.New(dv.ExitArguments, "chunk-tokens must be at least 1000")
+		}
+		chunkLimit = options.ChunkTokens
+	}
+	var chunks []string
+	if chunkLimit > 0 {
+		chunks, err = gitdiff.ChunkPatchTokens(providerPatch, chunkLimit, counter.Count)
+	} else {
+		chunks, err = gitdiff.ChunkPatch(providerPatch, repositoryConfig.Review.ChunkBytes)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	adapter, err := provider.New(provider.Options{Name: options.ProviderName, Transport: transport, Model: selectedModel, Effort: options.Effort, Root: repo, BeforeCall: options.BeforeCall})
+	tokenReport := &model.TokenReport{Tokenizer: counter.GetName(), Estimated: counter.Estimated,
+		ChunkLimitTokens: chunkLimit, Chunks: make([]model.ChunkTokens, len(chunks))}
+	chunkIndex := 0
+	onUsage := func(usage *model.TokenUsage) {
+		stats := &tokenReport.Chunks[chunkIndex]
+		stats.Requests = append(stats.Requests, usage)
+		if options.Diagnostics != nil && usage != nil {
+			fmt.Fprintf(options.Diagnostics, "Chunk %d/%d request %d: %d input tokens, %d output tokens (includes %d reasoning), %d cached input.\n",
+				chunkIndex+1, len(chunks), len(stats.Requests), usage.InputTokens, usage.OutputTokens, usage.ReasoningTokens, usage.CachedInputTokens)
+		}
+	}
+	adapter, err := provider.New(provider.Options{Name: options.ProviderName, Transport: transport, Model: selectedModel, Effort: options.Effort, Root: repo, BeforeCall: options.BeforeCall, OnUsage: onUsage})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -111,8 +140,31 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 	reviews := make([]model.ProviderReview, 0, len(chunks))
 	sizes := make([]int, 0, len(chunks))
 	for index, chunk := range chunks {
+		chunkIndex = index
 		prompt := buildPrompt(chunk, index+1, len(chunks), repositoryConfig.Review.Rubric, repositoryConfig.Review.Instructions)
 		prompt.System += fmt.Sprintf("\nReview scope: mode=%s, head=%s, committed-only=%t, staged-only=%t. For committed-only reviews, inspect files at the specified head with git show; working-tree edits are outside the review. For staged-only reviews, inspect index contents with git show :path; unstaged edits are outside the review. Otherwise inspect the working tree. Do not switch branches or overwrite local changes to inspect another revision.", collected.Mode, collected.HeadSHA, options.CommittedOnly, options.StagedOnly)
+		stats := &tokenReport.Chunks[index]
+		stats.DiffTokens, err = counter.Count(chunk)
+		if err != nil {
+			return nil, nil, err
+		}
+		systemTokens, countErr := counter.Count(prompt.System)
+		if countErr != nil {
+			return nil, nil, countErr
+		}
+		userTokens, countErr := counter.Count(prompt.User)
+		if countErr != nil {
+			return nil, nil, countErr
+		}
+		stats.PromptTextTokens = systemTokens + userTokens
+		stats.Requests = []*model.TokenUsage{}
+		if options.Diagnostics != nil {
+			fmt.Fprintf(options.Diagnostics, "Chunk %d/%d: %d diff tokens, %d prompt text tokens (%s; excludes tool/schema overhead and subsequent context).\n",
+				index+1, len(chunks), stats.DiffTokens, stats.PromptTextTokens, counter.GetName())
+			if counter.Estimated {
+				fmt.Fprintln(options.Diagnostics, "Model tokenizer is unknown locally; these text counts are estimates for the selected model.")
+			}
+		}
 		providerReview, reviewErr := adapter.Review(prompt)
 		if reviewErr != nil {
 			return nil, nil, reviewErr
@@ -151,6 +203,7 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 		Files:       model.FilesSummary{Reviewed: collected.ReviewedFiles, Excluded: collected.ExcludedFiles, Binary: collected.BinaryFiles, Omitted: []string{}, Redactions: redactions},
 		Gate:        rating.Gate(calculatedRating, combined.Findings, failBelow, failSeverity),
 		Publication: model.Publication{Requested: options.PublicationRequested},
+		Tokens:      tokenReport,
 	}
 	return result, nil, nil
 }

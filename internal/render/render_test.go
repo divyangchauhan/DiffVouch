@@ -33,6 +33,28 @@ func TestTerminalEscapesFindingPathControls(t *testing.T) {
 	}
 }
 
+func TestTokenReportSeparatesContextPeakFromCumulativeUsage(t *testing.T) {
+	result := model.ReviewResult{Tokens: &model.TokenReport{Tokenizer: "o200k_base", Estimated: true, ChunkLimitTokens: 50000,
+		Chunks: []model.ChunkTokens{
+			{DiffTokens: 30000, PromptTextTokens: 32000, Requests: []*model.TokenUsage{
+				{InputTokens: 35000, OutputTokens: 1000, CachedInputTokens: 10000, ReasoningTokens: 600},
+				{InputTokens: 45000, OutputTokens: 2000, CachedInputTokens: 30000, ReasoningTokens: 1500},
+			}},
+			{DiffTokens: 5000, PromptTextTokens: 7000, Requests: []*model.TokenUsage{nil}},
+		},
+	}}
+	output := Terminal(result)
+	for _, expected := range []string{"estimated for this model", "peak input: 45000", "80000 input (40000 cached)", "3000 output (2100 reasoning included)", "may be incomplete"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in %s", expected, output)
+		}
+	}
+	encoded, err := JSON(result)
+	if err != nil || !strings.Contains(encoded, `"requests": [`) || !strings.Contains(encoded, "null") {
+		t.Fatalf("usage missing from JSON: %s %v", encoded, err)
+	}
+}
+
 func TestTerminalEscapesProviderControlledText(t *testing.T) {
 	result := model.ReviewResult{
 		Summary: "summary\nforged\x1b]52;c;clipboard\a",

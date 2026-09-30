@@ -55,3 +55,18 @@ diffvouch eval compare --before /path/to/earlier/run --after /path/to/later/run
 ```
 
 A nonzero repeat selects the same deterministic approximately 20% subset for independent runs. `compare` requires the same manifest and writes observations on shared completed cases to `comparison.json`. Use it for code/prompt comparisons and repeat variation. Changes to the judge also change the measurement and should be assessed separately. No command enforces a regression threshold or CI quality gate.
+
+## Deferred task: evaluate chunk token limits
+
+Recorded 2026-09-21 at the user's request. Status: deferred; do not start until evaluations are explicitly resumed. Keep the current chunking implementation and configured value unchanged for now.
+
+Find the chunk token limit that gives the best review quality for the available subscription budget. Test sizes without changing how files or hunks are grouped, adding a synthesis pass, or modifying the prompt between size variants.
+
+- Freeze the reviewer implementation, the original prompt selected on 2026-09-30, model, effort, tools, judge/adjudicator settings, and case revisions. The completed prompt experiments remain separate from this deferred chunk-size experiment; do not attribute their differences to chunk size.
+- Preselect a representative development cohort before inspecting outcomes. Include enough PRs whose actual token counts exceed the smaller limits, large individual files, changes involving multiple files, and varied languages/repositories. Small PRs that remain a single chunk under every setting are a control, not evidence of an optimal limit. Expand the development collection if the existing 30 personal PRs lack enough large cases. Preserve untouched confirmation cases and keep benchmark labels and competitor output out of reviewer prompts.
+- Start with candidate limits of 20k, 35k, 50k, 75k, and 100k tokens, adjusted before the run if model/transport context constraints require it. Include a whole-diff condition only where sufficient context remains for instructions, tools, and reasoning/output. These are experiment values, not new defaults.
+- Before running, ensure the eval runner can pass an explicit chunk limit through to the reviewer and record it in the run identity/configuration. Record the tokenizer and whether local counts are estimates. Keep the byte collection safety limit and other per-chunk limits fixed, and record chunk count and actual usage. Different chunk counts can change the total available tool calls and review time; report that effect rather than treating total compute as equal.
+- Run paired cases for every setting, repeat a fixed subset to measure model variation, and retain failures and unfinished cases. Report reference coverage/precision/F2 where available, finding validity, concrete maintainability benefits, unresolved claims, completion rate, peak request input, cumulative usage, and elapsed time. Audit whether the prompt led to context inspection, execution of relevant existing tests/analyzers, candidate verification, and accurate reporting when evidence was unavailable. If saved output is insufficient to establish a behavior, mark it unknown rather than assume compliance.
+- Compare paired results with uncertainty and repository breakdowns. Select the development setting based on quality and usage, then confirm on untouched cases before recommending a default. Do not add regression enforcement. Retain the current default if the results do not establish a useful improvement.
+
+Use the native ChatGPT subscription transport, stop when its allowance is exhausted, and never fall back to billable API calls. Use archived/published competitor results only; do not run competitor products for this experiment.

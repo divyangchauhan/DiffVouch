@@ -31,6 +31,7 @@ type Review struct {
 	Exclude      []string       `yaml:"exclude"`
 	MaxDiffBytes int            `yaml:"max_diff_bytes"`
 	ChunkBytes   int            `yaml:"chunk_bytes"`
+	ChunkTokens  int            `yaml:"chunk_tokens"`
 }
 
 type QualityGate struct {
@@ -55,7 +56,7 @@ func Defaults() Repository {
 				"testing": 15, "scope": 10,
 			},
 			MaxDiffBytes: 500_000,
-			ChunkBytes:   180_000,
+			ChunkTokens:  50_000,
 		},
 	}
 }
@@ -107,6 +108,22 @@ func LoadRepository(repo, explicit, trustedRef string) (Repository, error) {
 	if err := decoder.Decode(&value); err != nil {
 		return value, fmt.Errorf("invalid DiffVouch config %s: %w", source, err)
 	}
+	// Preserve explicitly configured byte limits during migration. New configs
+	// use tokens; an explicit choice of both units is ambiguous.
+	var fields struct {
+		Review map[string]yaml.Node `yaml:"review"`
+	}
+	if err := yaml.Unmarshal(raw, &fields); err != nil {
+		return value, err
+	}
+	_, hasBytes := fields.Review["chunk_bytes"]
+	_, hasTokens := fields.Review["chunk_tokens"]
+	if hasBytes && hasTokens {
+		return value, errors.New("configure chunk_tokens or legacy chunk_bytes, not both")
+	}
+	if hasBytes {
+		value.Review.ChunkTokens = 0
+	}
 	if err := validate(value); err != nil {
 		return value, fmt.Errorf("invalid DiffVouch config %s: %w", source, err)
 	}
@@ -120,8 +137,14 @@ func validate(value Repository) error {
 	if value.Provider.DefaultTransport != "" && value.Provider.DefaultTransport != "cli" {
 		return errors.New("repository config cannot select API transport")
 	}
-	if value.Review.MaxDiffBytes < 10_000 || value.Review.ChunkBytes < 10_000 {
-		return errors.New("diff and chunk limits must be at least 10000 bytes")
+	if value.Review.MaxDiffBytes < 10_000 {
+		return errors.New("diff safety limit must be at least 10000 bytes")
+	}
+	if value.Review.ChunkTokens == 0 && value.Review.ChunkBytes < 10_000 {
+		return errors.New("chunk_tokens must be at least 1000, or legacy chunk_bytes at least 10000")
+	}
+	if value.Review.ChunkTokens != 0 && value.Review.ChunkTokens < 1000 {
+		return errors.New("chunk_tokens must be at least 1000")
 	}
 	total := 0
 	for _, name := range []string{"correctness", "security", "maintainability", "testing", "scope"} {

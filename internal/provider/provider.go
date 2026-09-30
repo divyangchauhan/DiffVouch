@@ -36,6 +36,7 @@ type Options struct {
 	Effort     string
 	Root       string
 	BeforeCall func(context.Context) error
+	OnUsage    func(*model.TokenUsage)
 }
 
 func New(options Options) (Adapter, error) {
@@ -48,12 +49,12 @@ func New(options Options) (Adapter, error) {
 		if options.Model == "" {
 			return nil, dv.New(dv.ExitProvider, "OpenAI API transport requires --model or a trusted repository model")
 		}
-		return &apiAdapter{name: "codex", model: options.Model, effort: options.Effort, root: options.Root}, nil
+		return &apiAdapter{name: "codex", model: options.Model, effort: options.Effort, root: options.Root, onUsage: options.OnUsage}, nil
 	case "codex/subscription":
 		if options.Model == "" {
 			return nil, dv.New(dv.ExitProvider, "ChatGPT subscription transport requires --model or a trusted repository model")
 		}
-		return &apiAdapter{name: "codex", subscription: true, model: options.Model, effort: options.Effort, root: options.Root, beforeCall: options.BeforeCall}, nil
+		return &apiAdapter{name: "codex", subscription: true, model: options.Model, effort: options.Effort, root: options.Root, beforeCall: options.BeforeCall, onUsage: options.OnUsage}, nil
 	case "claude/api":
 		if options.Model == "" {
 			return nil, dv.New(dv.ExitProvider, "Anthropic API transport requires --model or a trusted repository model")
@@ -342,6 +343,6 @@ func GenerateJSON(ctx context.Context, options Options, prompt Prompt, outputSch
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	a := &apiAdapter{name: "codex", subscription: true, model: options.Model, effort: options.Effort, root: options.Root, beforeCall: options.BeforeCall}
+	a := &apiAdapter{name: "codex", subscription: true, model: options.Model, effort: options.Effort, root: options.Root, beforeCall: options.BeforeCall, onUsage: options.OnUsage}
 	return a.generateOpenAI(ctx, prompt, outputSchema)
 }

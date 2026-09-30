@@ -27,6 +27,7 @@ type apiAdapter struct {
 	client                    *http.Client
 	subscription              bool
 	beforeCall                func(context.Context) error
+	onUsage                   func(*model.TokenUsage)
 }
 
 func (a *apiAdapter) Model() string { return a.model }
@@ -34,7 +35,7 @@ func (a *apiAdapter) Model() string { return a.model }
 func (a *apiAdapter) Review(prompt Prompt) (model.ProviderReview, error) {
 	interruptCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	ctx, cancel := context.WithTimeout(interruptCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(interruptCtx, 20*time.Minute)
 	defer cancel()
 	if a.name == "codex" {
 		return a.reviewOpenAI(ctx, prompt)
@@ -58,6 +59,30 @@ type apiBlock struct {
 type openAIResponse struct {
 	Status string            `json:"status"`
 	Output []json.RawMessage `json:"output"`
+	Usage  *openAIUsage      `json:"usage"`
+}
+
+type openAIUsage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	InputDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+	OutputDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
+}
+
+func (a *apiAdapter) reportUsage(usage *openAIUsage) {
+	if a.onUsage == nil {
+		return
+	}
+	if usage == nil {
+		a.onUsage(nil)
+		return
+	}
+	a.onUsage(&model.TokenUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+		CachedInputTokens: usage.InputDetails.CachedTokens, ReasoningTokens: usage.OutputDetails.ReasoningTokens})
 }
 
 func (a *apiAdapter) reviewOpenAI(ctx context.Context, prompt Prompt) (model.ProviderReview, error) {
@@ -114,6 +139,7 @@ func (a *apiAdapter) generateOpenAI(ctx context.Context, prompt Prompt, outputSc
 		if err != nil {
 			return nil, err
 		}
+		a.reportUsage(response.Usage)
 		if response.Status != "completed" {
 			return nil, dv.New(dv.ExitProvider, "OpenAI response did not complete")
 		}

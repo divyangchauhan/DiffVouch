@@ -110,7 +110,7 @@ Native API and subscription reviews return command output, exit status, and erro
 follow-up checks. Each command can run for up to 120 seconds and returns up to
 64 KiB of output, with truncation reported explicitly. File reads support paging.
 Each patch chunk allows up to 32 tool rounds or 128 tool calls, followed by a
-final review that records unfinished checks. A 10-minute deadline covers the
+final review that records unfinished checks. A 20-minute deadline covers the
 entire chunk; exceeding it fails the review.
 
 Other common scopes:
@@ -144,6 +144,59 @@ diffvouch review --provider codex --fail-on-severity high
 Repository-specific rules can be committed in `.diffvouch.yml`. DiffVouch reads
 that policy from the trusted base commit so a change cannot suppress its own
 review. A repository cannot select billable API transport or enable publishing.
+
+### Token limits and usage
+
+Diff chunks default to **50,000 tokens**, counted locally before any model call.
+Configure the limit in the trusted `.diffvouch.yml`:
+
+```yaml
+version: 1
+review:
+  chunk_tokens: 50000
+```
+
+Or override it for a review:
+
+```bash
+diffvouch review --provider codex --transport subscription --model gpt-5.6-sol --chunk-tokens 50000
+```
+
+This replaces the previous 180,000-byte default, not an exact conversion of it.
+Existing configurations with `chunk_bytes` keep their byte-based behavior.
+Choose one configuration field; `--chunk-tokens` overrides either. The separate
+`max_diff_bytes` collection safety limit remains in bytes.
+
+The tokenizer runs offline with bundled vocabularies. Recognized models use the
+encoding mapped by the tokenizer library. Unknown models, including newer model
+names and Claude, use `o200k_base` with an explicit estimate label. Counts are
+exact for that local encoding, not a guarantee of the selected model's accounting.
+
+Terminal output and the JSON `tokens` field report each chunk's diff and initial
+prompt text counts. Native OpenAI API and ChatGPT subscription reviews also
+record input, cached input, output, and reasoning tokens for each model request,
+when the provider returns usage. Progress goes to stderr, preserving JSON stdout.
+External CLI and Anthropic usage is currently unavailable. Missing usage is
+reported as unavailable, not zero.
+
+For context planning, use the **largest input count for a single request**, then
+leave room for reasoning and the answer. The cumulative input count across tool
+rounds measures usage and includes repeated history; it is not the context size.
+Cached tokens are already part of input, and reasoning tokens are already part
+of output. Do not add those subtotals twice.
+
+A chunk limit covers only the diff. Instructions, tool definitions, the output
+schema, and context gathered during review need additional room. For example,
+a chosen 128,000-token working budget might allocate 50,000 to the diff, 46,000
+to instructions and retrieved context, and 32,000 to reasoning and output. This
+is a planning example, not a measured model quality threshold. DiffVouch reports
+usage after requests; it does not yet enforce a total context budget or compact
+history. Establish the useful working budget through review-quality evals rather
+than assuming the model's maximum context is its best operating range.
+
+OpenAI documents the distinction between local text counts and full request
+counts in its [token-counting guide](https://developers.openai.com/api/docs/guides/token-counting),
+and explains context allocation in its [reasoning guide](https://developers.openai.com/api/docs/guides/reasoning).
 
 Secret redaction is temporarily disabled because altering source lines produced
 false findings. Review the diff for credentials before running DiffVouch: the

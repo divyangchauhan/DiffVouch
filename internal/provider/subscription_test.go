@@ -16,6 +16,7 @@ import (
 
 	"github.com/divyangchauhan/DiffVouch/internal/chatgpt"
 	"github.com/divyangchauhan/DiffVouch/internal/config"
+	"github.com/divyangchauhan/DiffVouch/internal/model"
 	"github.com/divyangchauhan/DiffVouch/internal/secret"
 )
 
@@ -52,7 +53,9 @@ func TestSubscriptionReviewUsesNativeToolsAndOpaqueHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "context.txt"), []byte("repository evidence"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	adapter, err := New(Options{Name: "codex", Transport: "subscription", Root: repo, Model: "subscription-model", Effort: "high"})
+	var usage []*model.TokenUsage
+	adapter, err := New(Options{Name: "codex", Transport: "subscription", Root: repo, Model: "subscription-model", Effort: "high",
+		OnUsage: func(value *model.TokenUsage) { usage = append(usage, value) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +77,9 @@ func TestSubscriptionReviewUsesNativeToolsAndOpaqueHistory(t *testing.T) {
 			return streamResponse(
 				map[string]any{"type": "response.output_item.done", "output_index": 0, "item": map[string]any{"type": "reasoning", "encrypted_content": "opaque-context", "summary": []any{}}},
 				map[string]any{"type": "response.output_item.done", "output_index": 1, "item": toolCall("codex", "read-1", "read_file", map[string]any{"path": "context.txt", "offset": 0, "max_bytes": 100})},
-				map[string]any{"type": "response.completed", "response": map[string]any{"status": "completed"}},
+				map[string]any{"type": "response.completed", "response": map[string]any{"status": "completed", "usage": map[string]any{
+					"input_tokens": 100, "output_tokens": 10, "input_tokens_details": map[string]int{"cached_tokens": 60}, "output_tokens_details": map[string]int{"reasoning_tokens": 4},
+				}}},
 			), nil
 		}
 		if calls != 2 {
@@ -89,6 +94,9 @@ func TestSubscriptionReviewUsesNativeToolsAndOpaqueHistory(t *testing.T) {
 	result, err := a.Review(Prompt{System: "system instructions", User: "patch"})
 	if err != nil || result.Summary != "No issues." || calls != 2 {
 		t.Fatalf("native subscription review failed: %v", err)
+	}
+	if len(usage) != 2 || usage[0] == nil || *usage[0] != (model.TokenUsage{InputTokens: 100, OutputTokens: 10, CachedInputTokens: 60, ReasoningTokens: 4}) || usage[1] != nil {
+		t.Fatalf("lost stream usage or reported missing usage as zero: %#v", usage)
 	}
 }
 

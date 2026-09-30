@@ -66,6 +66,38 @@ func TestExternalExplicitConfigLoadsFromFilesystem(t *testing.T) {
 	}
 }
 
+func TestChunkLimitConfigurationMigration(t *testing.T) {
+	repo := configRepository(t)
+	for _, test := range []struct {
+		name, fields  string
+		tokens, bytes int
+		invalid       bool
+	}{
+		{"default", "", 50000, 0, false},
+		{"tokens", "  chunk_tokens: 32000\n", 32000, 0, false},
+		{"legacy", "  chunk_bytes: 180000\n", 0, 180000, false},
+		{"ambiguous", "  chunk_tokens: 32000\n  chunk_bytes: 180000\n", 0, 0, true},
+		{"too small", "  chunk_tokens: 999\n", 0, 0, true},
+		{"zero", "  chunk_tokens: 0\n", 0, 0, true},
+		{"negative", "  chunk_tokens: -1\n", 0, 0, true},
+		{"legacy zero", "  chunk_bytes: 0\n", 0, 0, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "review.yml")
+			if err := os.WriteFile(path, []byte("version: 1\nreview:\n"+test.fields), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			value, err := LoadRepository(repo, path, "HEAD")
+			if (err != nil) != test.invalid {
+				t.Fatalf("unexpected validation: %v", err)
+			}
+			if err == nil && (value.Review.ChunkTokens != test.tokens || value.Review.ChunkBytes != test.bytes) {
+				t.Fatalf("wrong limits: %#v", value.Review)
+			}
+		})
+	}
+}
+
 func TestRepositoryConfigCannotSelectAPI(t *testing.T) {
 	repo := configRepository(t)
 	path := filepath.Join(repo, "unsafe.yml")

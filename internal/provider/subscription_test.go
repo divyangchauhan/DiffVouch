@@ -100,6 +100,63 @@ func TestSubscriptionReviewUsesNativeToolsAndOpaqueHistory(t *testing.T) {
 	}
 }
 
+func TestSubscriptionReviewSeparatesCommentaryFromFinalAnswer(t *testing.T) {
+	for _, separate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("separate_commentary_%v", separate), func(t *testing.T) {
+			subscriptionSession(t)
+			message := func(phase, text string) map[string]any {
+				return map[string]any{"type": "message", "role": "assistant", "phase": phase,
+					"content": []any{map[string]string{"type": "output_text", "text": text}}}
+			}
+			final := validReview()
+			final.Summary = "Completed final review."
+			raw, _ := json.Marshal(final)
+			calls := 0
+			a := &apiAdapter{name: "codex", subscription: true, root: t.TempDir(), model: "test"}
+			a.client = &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				if separate && calls == 1 {
+					// Even schema-valid commentary is not the completed review.
+					interim, _ := json.Marshal(validReview())
+					return streamResponse(map[string]any{"type": "response.completed", "response": toolResponse("codex", message("commentary", string(interim)))}), nil
+				}
+				if separate && !strings.Contains(string(body["input"]), `"phase":"commentary"`) {
+					t.Fatal("commentary phase was lost from replayed history")
+				}
+				if calls > 2 {
+					t.Fatal("unexpected extra model call")
+				}
+				return streamResponse(map[string]any{"type": "response.completed", "response": toolResponse("codex",
+					message("commentary", "Inspection is complete."), message("final_answer", string(raw)))}), nil
+			})}
+			result, err := a.Review(Prompt{System: "Review the patch.", User: "patch"})
+			if err != nil || result.Summary != final.Summary || separate && calls != 2 || !separate && calls != 1 {
+				t.Fatalf("review failed or stopped at commentary: calls=%d result=%#v error=%v", calls, result, err)
+			}
+		})
+	}
+}
+
+func TestSubscriptionCommentaryCannotBypassRoundBudget(t *testing.T) {
+	subscriptionSession(t)
+	calls := 0
+	a := &apiAdapter{name: "codex", subscription: true, model: "test"}
+	a.client = &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return streamResponse(map[string]any{"type": "response.completed", "response": toolResponse("codex",
+			map[string]any{"type": "message", "role": "assistant", "phase": "commentary",
+				"content": []any{map[string]string{"type": "output_text", "text": "Still inspecting."}}})}), nil
+	})}
+	_, err := a.Review(Prompt{System: "Review the patch.", User: "patch"})
+	if err == nil || !strings.Contains(err.Error(), "round limit") || calls != maxToolRounds+1 {
+		t.Fatalf("commentary escaped budget: calls=%d error=%v", calls, err)
+	}
+}
+
 func TestSubscriptionRefreshesOnceAfter401(t *testing.T) {
 	subscriptionSession(t)
 	attempts, refreshes := 0, 0
@@ -208,5 +265,30 @@ func TestSubscriptionChecksBudgetBeforeEveryModelCall(t *testing.T) {
 	_, err := a.Review(Prompt{System: "review", User: "patch"})
 	if !errors.Is(err, chatgpt.ErrAllowance) || checks != 2 || requests != 1 {
 		t.Fatalf("budget failed: checks=%d requests=%d error=%v", checks, requests, err)
+	}
+}
+
+func TestSubscriptionFailureDiagnosticsDoNotExposeResponseContent(t *testing.T) {
+	for _, tc := range []struct{ name, event, want string }{
+		{"failed", `{"type":"response.failed","response":{"error":{"code":"server_error","message":"private code and subscription-access"}}}`, "response.failed; server_error"},
+		{"context", `{"type":"response.failed","response":{"error":{"code":"context_length_exceeded"}}}`, "response.failed; context_length_exceeded"},
+		{"incomplete", `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}`, "response.incomplete; max_output_tokens"},
+		{"error", `{"type":"error","code":"rate_limit_exceeded","message":"private"}`, "error; rate_limit_exceeded"},
+		{"overloaded", `{"type":"error","error":{"code":"server_is_overloaded","type":"service_unavailable_error","message":"private","headers":{"x-retry-metadata":"NO_MORE_RETRY"}}}`, "error; server_is_overloaded"},
+		{"nested error", `{"type":"error","error":{"code":"server_error","message":"private"}}`, "error; server_error"},
+		{"unknown", `{"type":"response.failed","response":{"error":{"code":"subscription-access","message":"private"}}}`, "response.failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := readSubscriptionStream(strings.NewReader("data: " + tc.event + "\n\n"))
+			if err == nil || !strings.Contains(err.Error(), "("+tc.want+")") {
+				t.Fatalf("missing safe diagnostic: %v", err)
+			}
+			if strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "subscription-access") {
+				t.Fatalf("exposed response content: %v", err)
+			}
+			if len(result.Output) != 0 {
+				t.Fatal("accepted failed output")
+			}
+		})
 	}
 }

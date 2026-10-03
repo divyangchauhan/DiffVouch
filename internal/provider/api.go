@@ -47,6 +47,7 @@ func (a *apiAdapter) Review(prompt Prompt) (model.ProviderReview, error) {
 // to preserve reasoning, encrypted content, thinking signatures, and tool IDs.
 type apiBlock struct {
 	Type      string          `json:"type"`
+	Phase     string          `json:"phase"`
 	ID        string          `json:"id"`
 	CallID    string          `json:"call_id"`
 	Name      string          `json:"name"`
@@ -145,6 +146,7 @@ func (a *apiAdapter) generateOpenAI(ctx context.Context, prompt Prompt, outputSc
 		}
 		var calls []apiBlock
 		var text strings.Builder
+		hasCommentary := false
 		for _, raw := range response.Output {
 			var block apiBlock
 			if err := json.Unmarshal(raw, &block); err != nil {
@@ -158,13 +160,22 @@ func (a *apiAdapter) generateOpenAI(ctx context.Context, prompt Prompt, outputSc
 					return nil, dv.New(dv.ExitProvider, "OpenAI refused the review")
 				}
 				if content.Type == "output_text" {
-					text.WriteString(content.Text)
+					if block.Phase == "commentary" {
+						hasCommentary = true
+					} else {
+						text.WriteString(content.Text)
+					}
 				}
 			}
 			input = append(input, raw)
 		}
 		if len(calls) == 0 {
 			if text.Len() == 0 {
+				if hasCommentary {
+					// A completed response can contain only an intermediate update.
+					// Replay its original phase and continue within the same budget.
+					continue
+				}
 				return nil, dv.New(dv.ExitProvider, "OpenAI response contained no structured output")
 			}
 			raw := json.RawMessage(text.String())

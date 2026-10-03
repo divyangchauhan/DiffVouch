@@ -177,7 +177,7 @@ func Perform(options Options) (*model.ReviewResult, *model.FilesSummary, error) 
 	for _, path := range collected.ReviewedFiles {
 		reviewedPaths[path] = struct{}{}
 	}
-	accepted, rejectedLocations := validateFindingLocations(combined.Findings, reviewedPaths, github.ChangedLines(collected.Patch))
+	accepted, rejectedLocations := validateFindingLocations(combined.Findings, reviewedPaths, github.CommentableLines(collected.Patch))
 	combined.NeedsVerification = append(combined.NeedsVerification, rejectedLocations...)
 	combined.Findings = rating.NormalizeFindings(accepted)
 	if combined.Findings == nil {
@@ -220,7 +220,7 @@ func warnUnredacted(output io.Writer) {
 	}
 }
 
-func validateFindingLocations(findings []model.Finding, reviewedPaths map[string]struct{}, changedLines map[github.DiffLocation]struct{}) ([]model.Finding, []string) {
+func validateFindingLocations(findings []model.Finding, reviewedPaths map[string]struct{}, commentableLines map[github.DiffLocation]struct{}) ([]model.Finding, []string) {
 	accepted := make([]model.Finding, 0, len(findings))
 	var needsVerification []string
 	for _, finding := range findings {
@@ -235,8 +235,8 @@ func validateFindingLocations(findings []model.Finding, reviewedPaths map[string
 			if *finding.Side == "old" {
 				side = "LEFT"
 			}
-			if _, ok := changedLines[github.DiffLocation{Path: *finding.Path, Side: side, Line: *finding.Line}]; !ok {
-				needsVerification = append(needsVerification, fmt.Sprintf("Provider cited %s:%d on an unchanged or unavailable line.", gitdiff.DisplayPath(*finding.Path), *finding.Line))
+			if _, ok := commentableLines[github.DiffLocation{Path: *finding.Path, Side: side, Line: *finding.Line}]; !ok {
+				needsVerification = append(needsVerification, fmt.Sprintf("Provider cited %s:%d on an unavailable diff line.", gitdiff.DisplayPath(*finding.Path), *finding.Line))
 				continue
 			}
 		}

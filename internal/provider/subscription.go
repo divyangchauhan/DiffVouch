@@ -132,7 +132,7 @@ func readSubscriptionStream(reader io.Reader) (openAIResponse, error) {
 			}
 			return &result, nil
 		case "response.failed", "response.incomplete", "error":
-			return nil, dv.New(dv.ExitProvider, "ChatGPT subscription response failed or was incomplete")
+			return nil, subscriptionFailure(event.Type, raw)
 		}
 		return nil, nil
 	}
@@ -168,4 +168,33 @@ func readSubscriptionStream(reader io.Reader) (openAIResponse, error) {
 		return *result, nil
 	}
 	return openAIResponse{}, dv.New(dv.ExitProvider, "ChatGPT subscription stream ended before response.completed")
+}
+
+// Report only recognized protocol codes. Error messages and unknown codes may
+// contain request content, so never copy them into CLI output or eval records.
+func subscriptionFailure(eventType, raw string) error {
+	type failure struct {
+		Code string `json:"code"`
+	}
+	var event struct {
+		Code     string  `json:"code"`
+		Error    failure `json:"error"`
+		Response struct {
+			Error             failure `json:"error"`
+			IncompleteDetails struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
+		} `json:"response"`
+	}
+	// The stream parser has already checked that the event is valid JSON.
+	_ = json.Unmarshal([]byte(raw), &event)
+	detail := eventType
+	for _, code := range []string{event.Response.Error.Code, event.Response.IncompleteDetails.Reason, event.Error.Code, event.Code} {
+		switch code {
+		case "server_error", "server_is_overloaded", "rate_limit_exceeded", "context_length_exceeded", "invalid_prompt", "max_output_tokens", "content_filter":
+			detail += "; " + code
+			return dv.New(dv.ExitProvider, "ChatGPT subscription response failed or was incomplete ("+detail+")")
+		}
+	}
+	return dv.New(dv.ExitProvider, "ChatGPT subscription response failed or was incomplete ("+detail+")")
 }

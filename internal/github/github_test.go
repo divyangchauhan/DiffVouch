@@ -57,9 +57,9 @@ func TestJWTUsesRS256AndShortLifetime(t *testing.T) {
 	}
 }
 
-func TestChangedLinesIncludesDeletedSide(t *testing.T) {
+func TestCommentableLinesIncludesDeletedSide(t *testing.T) {
 	diff := "diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n@@ -2 +0,0 @@\n-removed\n"
-	if _, ok := ChangedLines(diff)[DiffLocation{"gone.txt", "LEFT", 2}]; !ok {
+	if _, ok := CommentableLines(diff)[DiffLocation{"gone.txt", "LEFT", 2}]; !ok {
 		t.Fatal("deleted line is not eligible")
 	}
 }
@@ -307,5 +307,20 @@ func TestParseRemoteAndExplicitRepository(t *testing.T) {
 	}
 	if host != "github.example.com" || owner != "other" || name != "project" {
 		t.Fatalf("wrong override: %s %s %s", host, owner, name)
+	}
+}
+
+func TestCommentableLinesRestrictsContextToNewSideAndSuppliedHunks(t *testing.T) {
+	diff := "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -7,3 +7,3 @@\n before\n-old\n+new\n after\n@@ -20 +20 @@\n-old2\n+new2\n"
+	lines := CommentableLines(diff)
+	for _, loc := range []DiffLocation{{"main.go", "RIGHT", 7}, {"main.go", "LEFT", 8}, {"main.go", "RIGHT", 8}, {"main.go", "RIGHT", 9}, {"main.go", "LEFT", 20}, {"main.go", "RIGHT", 20}} {
+		if _, ok := lines[loc]; !ok {
+			t.Errorf("missing commentable location: %+v", loc)
+		}
+	}
+	for _, loc := range []DiffLocation{{"main.go", "LEFT", 7}, {"main.go", "LEFT", 9}, {"main.go", "RIGHT", 10}, {"main.go", "RIGHT", 19}, {"other.go", "RIGHT", 8}} {
+		if _, ok := lines[loc]; ok {
+			t.Errorf("accepted unavailable location: %+v", loc)
+		}
 	}
 }

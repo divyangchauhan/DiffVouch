@@ -654,7 +654,9 @@ type DiffLocation struct {
 	Line       int
 }
 
-func ChangedLines(diff string) map[DiffLocation]struct{} {
+// CommentableLines includes additions, deletions, and new-side context inside
+// supplied hunks, matching GitHub review-comment line/side semantics.
+func CommentableLines(diff string) map[DiffLocation]struct{} {
 	result := map[DiffLocation]struct{}{}
 	oldPath, newPath := "", ""
 	oldLine, newLine := 0, 0
@@ -688,6 +690,9 @@ func ChangedLines(diff string) map[DiffLocation]struct{} {
 			}
 			oldLine++
 		case inHunk && strings.HasPrefix(line, " "):
+			if newPath != "" {
+				result[DiffLocation{newPath, "RIGHT", newLine}] = struct{}{}
+			}
 			oldLine++
 			newLine++
 		}
@@ -742,7 +747,7 @@ func Publish(result *model.ReviewResult, repo, explicitRepo, explicitHost string
 	if err := client.request(http.MethodGet, path, token, nil, &diffRaw, "application/vnd.github.v3.diff"); err != nil {
 		return "", "", err
 	}
-	eligible := ChangedLines(string(diffRaw))
+	eligible := CommentableLines(string(diffRaw))
 	var comments []map[string]any
 	for _, finding := range result.Findings {
 		if finding.Confidence == "low" || finding.Path == nil || finding.Line == nil || finding.Side == nil {

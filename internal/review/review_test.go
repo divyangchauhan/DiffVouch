@@ -83,7 +83,7 @@ func TestInvalidGateSeverityFailsBeforeDiffCollection(t *testing.T) {
 	}
 }
 
-func TestValidateFindingLocationsRejectsUnchangedLines(t *testing.T) {
+func TestValidateFindingLocationsRejectsUnavailableLines(t *testing.T) {
 	path, side := "main.go", "new"
 	changedLine, unchangedLine := 8, 9
 	findings := []model.Finding{
@@ -98,7 +98,7 @@ func TestValidateFindingLocationsRejectsUnchangedLines(t *testing.T) {
 	if len(accepted) != 1 || accepted[0].Title != "supported" {
 		t.Fatalf("unexpected accepted findings: %#v", accepted)
 	}
-	if len(verification) != 1 || !stringContains(verification[0], "unchanged or unavailable") {
+	if len(verification) != 1 || !stringContains(verification[0], "unavailable diff line") {
 		t.Fatalf("unexpected verification notes: %#v", verification)
 	}
 }
@@ -110,4 +110,14 @@ func stringContains(value, part string) bool {
 		}
 	}
 	return false
+}
+
+func TestFindingOnDiffContextIsRetained(t *testing.T) {
+	patch := "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -7,3 +7,3 @@\n before\n-old\n+new\n after\n"
+	path, side, line := "main.go", "new", 9
+	finding := model.Finding{Title: "Failure caused by the adjacent change", Path: &path, Side: &side, Line: &line}
+	accepted, notes := validateFindingLocations([]model.Finding{finding}, map[string]struct{}{path: {}}, github.CommentableLines(patch))
+	if len(accepted) != 1 || len(notes) != 0 {
+		t.Fatalf("discarded a finding on commentable context: %#v, %#v", accepted, notes)
+	}
 }
